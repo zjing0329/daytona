@@ -21,6 +21,8 @@ type PollerServiceConfig struct {
 	PollLimit   int
 	Logger      *slog.Logger
 	Executor    *executor.Executor
+	SandboxCreateConcurrency  int
+	SandboxDestroyConcurrency int
 }
 
 // Service handles job polling from the API
@@ -30,6 +32,8 @@ type Service struct {
 	pollLimit   int
 	executor    *executor.Executor
 	client      *apiclient.APIClient
+	createGate  chan struct{}
+	destroyGate chan struct{}
 }
 
 // NewService creates a new poller service
@@ -39,12 +43,23 @@ func NewService(cfg *PollerServiceConfig) (*Service, error) {
 		return nil, fmt.Errorf("failed to create API client: %w", err)
 	}
 
+	createConcurrency := cfg.SandboxCreateConcurrency
+	if createConcurrency < 1 {
+		createConcurrency = 1
+	}
+	destroyConcurrency := cfg.SandboxDestroyConcurrency
+	if destroyConcurrency < 1 {
+		destroyConcurrency = 1
+	}
+
 	return &Service{
 		log:         cfg.Logger.With(slog.String("component", "poller")),
 		pollTimeout: cfg.PollTimeout,
 		pollLimit:   cfg.PollLimit,
 		executor:    cfg.Executor,
 		client:      apiClient,
+		createGate:  make(chan struct{}, createConcurrency),
+		destroyGate: make(chan struct{}, destroyConcurrency),
 	}, nil
 }
 
@@ -58,7 +73,8 @@ func (s *Service) Start(ctx context.Context) {
 		if inProgressJobs != nil && len(inProgressJobs.Items) > 0 {
 			s.log.InfoContext(ctx, "Found IN_PROGRESS jobs", "count", len(inProgressJobs.Items))
 			for _, job := range inProgressJobs.Items {
-				go s.executor.Execute(ctx, &job)
+				job := job
+				go s.execute(ctx, &job)
 			}
 		} else {
 			s.log.InfoContext(ctx, "No IN_PROGRESS jobs found")
@@ -86,12 +102,36 @@ func (s *Service) Start(ctx context.Context) {
 			if len(jobs) > 0 {
 				s.log.DebugContext(ctx, "Received jobs", "count", len(jobs))
 				for _, job := range jobs {
-					// Execute job in goroutine for parallel processing
-					go s.executor.Execute(ctx, &job)
+					job := job
+					go s.execute(ctx, &job)
 				}
 			}
 		}
 	}
+}
+
+// execute bounds the Docker-heavy lifecycle operations independently. Polling
+// may continue so the API can expose an accurate pending-job queue, but a
+// runner never starts an unbounded create/destroy storm against its daemon.
+func (s *Service) execute(ctx context.Context, job *apiclient.Job) {
+	var gate chan struct{}
+	switch job.GetType() {
+	case apiclient.JOBTYPE_CREATE_SANDBOX:
+		gate = s.createGate
+	case apiclient.JOBTYPE_DESTROY_SANDBOX:
+		gate = s.destroyGate
+	}
+
+	if gate != nil {
+		select {
+		case gate <- struct{}{}:
+			defer func() { <-gate }()
+		case <-ctx.Done():
+			return
+		}
+	}
+
+	s.executor.Execute(ctx, job)
 }
 
 // pollJobs polls the API for pending jobs

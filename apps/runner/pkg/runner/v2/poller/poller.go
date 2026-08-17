@@ -43,13 +43,13 @@ func NewService(cfg *PollerServiceConfig) (*Service, error) {
 		return nil, fmt.Errorf("failed to create API client: %w", err)
 	}
 
-	createConcurrency := cfg.SandboxCreateConcurrency
-	if createConcurrency < 1 {
-		createConcurrency = 1
+	var createGate chan struct{}
+	if cfg.SandboxCreateConcurrency > 0 {
+		createGate = make(chan struct{}, cfg.SandboxCreateConcurrency)
 	}
-	destroyConcurrency := cfg.SandboxDestroyConcurrency
-	if destroyConcurrency < 1 {
-		destroyConcurrency = 1
+	var destroyGate chan struct{}
+	if cfg.SandboxDestroyConcurrency > 0 {
+		destroyGate = make(chan struct{}, cfg.SandboxDestroyConcurrency)
 	}
 
 	return &Service{
@@ -58,8 +58,8 @@ func NewService(cfg *PollerServiceConfig) (*Service, error) {
 		pollLimit:   cfg.PollLimit,
 		executor:    cfg.Executor,
 		client:      apiClient,
-		createGate:  make(chan struct{}, createConcurrency),
-		destroyGate: make(chan struct{}, destroyConcurrency),
+		createGate:  createGate,
+		destroyGate: destroyGate,
 	}, nil
 }
 
@@ -111,8 +111,9 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 // execute bounds the Docker-heavy lifecycle operations independently. Polling
-// may continue so the API can expose an accurate pending-job queue, but a
-// runner never starts an unbounded create/destroy storm against its daemon.
+// may continue so the API can expose an accurate pending-job queue. A zero
+// lifecycle-concurrency setting leaves its gate disabled for an explicit
+// unlimited stress-test run.
 func (s *Service) execute(ctx context.Context, job *apiclient.Job) {
 	var gate chan struct{}
 	switch job.GetType() {

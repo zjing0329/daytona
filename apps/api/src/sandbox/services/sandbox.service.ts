@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
+import { assertRunnerDeleteAllowed } from '../../common/errors/runner-delete-maintenance.error'
+
 import {
   ForbiddenException,
   Inject,
@@ -2012,6 +2014,7 @@ export class SandboxService {
 
   async destroy(sandboxIdOrName: string, organizationId?: string): Promise<Sandbox> {
     const sandbox = await this.findOneByIdOrName(sandboxIdOrName, organizationId)
+    await assertRunnerDeleteAllowed(this.redis, sandbox.runnerId)
 
     if (sandbox.pending && sandbox.state !== SandboxState.PENDING_BUILD) {
       throw new StateChangeInProgressError()
@@ -2033,6 +2036,8 @@ export class SandboxService {
     const updatedSandbox = await this.sandboxRepository.updateWhere(sandbox.id, {
       updateData,
       whereCondition: { pending: sandbox.pending, state: sandbox.state },
+      // Recheck the fresh row after acquiring its write lock; closes a DELETE/maintenance-entry race.
+      beforeUpdate: (lockedSandbox) => assertRunnerDeleteAllowed(this.redis, lockedSandbox.runnerId),
     })
 
     this.eventEmitter.emit(SandboxEvents.DESTROYED, new SandboxDestroyedEvent(updatedSandbox))

@@ -144,9 +144,11 @@ export class SandboxRepository extends BaseRepository<Sandbox> {
     params: {
       updateData: Partial<Sandbox>
       whereCondition: FindOptionsWhere<Sandbox>
+      /** Runs under the row write lock, before any mutation or event. Must not mutate the entity. */
+      beforeUpdate?: (sandbox: Sandbox) => Promise<void>
     },
   ): Promise<Sandbox> {
-    const { updateData, whereCondition } = params
+    const { updateData, whereCondition, beforeUpdate } = params
 
     return this.manager.transaction(async (entityManager) => {
       const whereClause = {
@@ -164,6 +166,8 @@ export class SandboxRepository extends BaseRepository<Sandbox> {
       if (!sandbox) {
         throw new SandboxConflictError()
       }
+
+      await beforeUpdate?.(sandbox)
 
       const previousSandbox = { ...sandbox }
 

@@ -142,8 +142,8 @@ export class JobController {
   // 404 rather than silently ignoring a new filter and claiming the wrong jobs.
   @Get('admission/capabilities')
   @ApiOperation({ summary: 'Runner admission protocol version', operationId: 'getJobAdmissionCapabilities' })
-  admissionCapabilities(): { version: number } {
-    return { version: 1 }
+  admissionCapabilities(): { version: number; recoveryRenewal: boolean } {
+    return { version: 1, recoveryRenewal: true }
   }
 
   @Get('admission/poll')
@@ -161,6 +161,17 @@ export class JobController {
     }
     const jobs = await this.jobService.claimAdmittedJobs(runnerContext.runnerId, parsed.jobClass, parsed.limit)
     return { version: 1, jobs }
+  }
+
+  @Post('admission/recover/:jobId')
+  @ApiOperation({ summary: 'Renew eligible recovery work after reserving node capacity', operationId: 'renewRecoveryJob' })
+  @UseGuards(JobAccessGuard)
+  async renewRecoveryJob(
+    @IsRunnerAuthContext() runnerContext: RunnerAuthContext,
+    @Param('jobId') jobId: string,
+  ): Promise<{ version: number; job: JobDto | null }> {
+    const job = await this.jobService.renewRecoveryJob(runnerContext.runnerId, jobId)
+    return { version: 1, job }
   }
 
   @Get(':jobId')

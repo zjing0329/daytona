@@ -2,7 +2,7 @@
  * Copyright 2026 Daytona Platforms Inc.
  * SPDX-License-Identifier: AGPL-3.0
  */
-import { In, Not, Repository } from 'typeorm'
+import { In, Not, LessThan, Repository } from 'typeorm'
 import { Job } from '../entities/job.entity'
 import { JobStatus } from '../enums/job-status.enum'
 import { JobType } from '../enums/job-type.enum'
@@ -44,4 +44,37 @@ export async function claimPendingJobs(
     }
   }
   return claimed
+}
+
+
+// Renew only an existing IN_PROGRESS row. A terminal job must never be revived.
+export async function renewRecoveryJob(repository: Repository<Job>, runnerId: string, id: string): Promise<Job | null> {
+  const job = await repository.findOneBy({ id, runnerId, status: JobStatus.IN_PROGRESS })
+  if (!job) return null
+  const updatedAt = new Date()
+  const result = await repository.update(
+    { id, runnerId, status: JobStatus.IN_PROGRESS, version: job.version },
+    { updatedAt },
+  )
+  if (result.affected !== 1) return null
+  job.updatedAt = updatedAt
+  job.version += 1
+  return job
+}
+
+// The stale scanner uses its observed version as well as the timeout predicate,
+// so it cannot fail a job after a recovery renewal or concurrent completion.
+export async function failStaleJob(repository: Repository<Job>, job: Job, threshold: Date, errorMessage: string): Promise<Job | null> {
+  const now = new Date()
+  const result = await repository.update(
+    { id: job.id, status: JobStatus.IN_PROGRESS, version: job.version, updatedAt: LessThan(threshold) },
+    { status: JobStatus.FAILED, errorMessage, updatedAt: now, completedAt: now },
+  )
+  if (result.affected !== 1) return null
+  job.status = JobStatus.FAILED
+  job.errorMessage = errorMessage
+  job.updatedAt = now
+  job.completedAt = now
+  job.version += 1
+  return job
 }

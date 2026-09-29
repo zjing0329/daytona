@@ -7,7 +7,7 @@ require('ts-node').register({
 })
 const {test}=require('node:test')
 const assert=require('node:assert/strict')
-const {claimPendingJobs,parseAdmissionRequest}=require('./job-admission.ts')
+const {claimPendingJobs,parseAdmissionRequest,renewRecoveryJob,failStaleJob}=require('./job-admission.ts')
 const {JobStatus}=require('../enums/job-status.enum.ts')
 
 test('admission query validation rejects absent, fractional, negative and excessive capacity',()=>{
@@ -51,7 +51,7 @@ test('PostgreSQL concurrent claim and cleanup selection integration', {skip:!pro
  const db=new DataSource({type:'postgres',url:process.env.DSEC_TEST_DATABASE,entities:[new EntitySchema({
   name:'AdmissionJobTest',tableName:'admission_job_test',columns:{
    id:{type:String,primary:true},runnerId:{type:String},status:{type:String},type:{type:String},
-   version:{type:Number,version:true},createdAt:{type:Date},updatedAt:{type:Date},startedAt:{type:Date,nullable:true},
+   version:{type:Number,version:true},createdAt:{type:Date},updatedAt:{type:Date},startedAt:{type:Date,nullable:true},completedAt:{type:Date,nullable:true},errorMessage:{type:String,nullable:true},
   },
  })],synchronize:true})
  await db.initialize()
@@ -68,5 +68,42 @@ test('PostgreSQL concurrent claim and cleanup selection integration', {skip:!pro
   const results=await Promise.all(Array.from({length:10},()=>claimPendingJobs(repo,'runner-a',1,'heavy')))
   assert.deepEqual(results.flat().map(j=>j.id),['heavy'])
   assert.equal((await repo.findOneByOrFail({id:'other'})).status,JobStatus.PENDING)
+  const old=new Date(Date.now()-20*60*1000)
+  await repo.save({id:'recovery',runnerId:'runner-a',status:JobStatus.IN_PROGRESS,type:'CREATE_SANDBOX',version:1,createdAt:old,updatedAt:old})
+  const stale=await repo.findOneByOrFail({id:'recovery'})
+  assert.equal(await renewRecoveryJob(repo,'wrong-runner','recovery'),null)
+  const renewed=await renewRecoveryJob(repo,'runner-a','recovery')
+  assert.ok(renewed);assert.ok(renewed.updatedAt>old)
+  assert.equal(await failStaleJob(repo,stale,new Date(),'expired snapshot'),null)
+  const fresh=await repo.findOneByOrFail({id:'recovery'})
+  assert.equal(await failStaleJob(repo,fresh,old,'not stale'),null)
+  await repo.update({id:'recovery'},{status:JobStatus.FAILED})
+  assert.equal(await renewRecoveryJob(repo,'runner-a','recovery'),null)
+  await repo.save({id:'race-recovery',runnerId:'runner-a',status:JobStatus.IN_PROGRESS,type:'CREATE_SANDBOX',version:1,createdAt:old,updatedAt:old})
+  const observed=await repo.findOneByOrFail({id:'race-recovery'})
+  const [renewRace,failRace]=await Promise.all([
+   renewRecoveryJob(repo,'runner-a','race-recovery'),
+   failStaleJob(repo,observed,new Date(),'expired'),
+  ])
+  assert.ok(!(renewRace&&failRace),'renewal and stale transition cannot both win')
+
  }finally{await db.destroy()}
+})
+
+test('recovery renewal does not revive terminal or wrong-owner jobs',async()=>{
+ let updates=0
+ const repo={findOneBy:async q=>{assert.equal(q.status,JobStatus.IN_PROGRESS);assert.equal(q.runnerId,'runner-a');return null},update:async()=>{updates++;return {affected:1}}}
+ assert.equal(await renewRecoveryJob(repo,'runner-a','terminal'),null)
+ assert.equal(updates,0)
+})
+test('recovery and stale scan use status and observed version CAS',async()=>{
+ const now=new Date()
+ const row={id:'job',runnerId:'runner-a',status:JobStatus.IN_PROGRESS,version:7,updatedAt:now}
+ let criteria
+ const repo={findOneBy:async()=>({...row}),update:async q=>{criteria=q;return {affected:0}}}
+ assert.equal(await renewRecoveryJob(repo,'runner-a','job'),null)
+ assert.deepEqual(criteria,{id:'job',runnerId:'runner-a',status:JobStatus.IN_PROGRESS,version:7})
+ assert.equal(await failStaleJob(repo,row,now,'stale'),null)
+ assert.equal(criteria.version,7);assert.equal(criteria.status,JobStatus.IN_PROGRESS)
+ assert.equal(criteria.updatedAt.type,'lessThan')
 })

@@ -105,3 +105,26 @@ Rollback pressure by setting NODE_PRESSURE_ENABLED=false in the planned rollout.
 Rollback static admission with the saved prior Runner image, and retain the old API
 endpoint throughout. These commands/configuration have not been applied to live
 containers. The fork commits are local to the server and have not been pushed.
+
+
+## Recovery freshness and stale-job arbitration
+
+After waiting for its node permit, each recovered job is revalidated before
+execution. APIs advertising recoveryRenewal=true support POST
+/jobs/admission/recover/:jobId: it conditionally renews updatedAt only for the
+same Runner's IN_PROGRESS row and observed version. Terminal and wrong-owner
+jobs are never revived. The stale scanner also compares status, observed
+version and its timeout predicate, so a scan taken before successful renewal
+cannot fail that renewed job.
+
+Older APIs, including admission version 1 without that capability flag, receive
+a fresh GET /jobs/:jobId after capacity is obtained. Non-IN_PROGRESS jobs are
+skipped; authentication and server errors do not downgrade to blind execution.
+The legacy GET cannot atomically renew the stale timer, so a state change between
+that read and execution remains possible. Upgrade the API before rollout to gain
+renewal arbitration.
+
+This is a bounded startup recovery safeguard, not durable fencing or ongoing
+job heartbeats. Existing per-job execution stale timeouts still apply after
+renewal. Revalidation errors leave work for existing reconciliation rather than
+executing a stale cached payload. No unbounded recovery goroutines are introduced.

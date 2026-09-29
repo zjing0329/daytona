@@ -8,11 +8,13 @@ No push, live container update, live Docker lifecycle test or data migration.
 ## Go
 
 The complete apps/runner/... tree passes go test -race -count=1.
-There are 23 top-level test functions across the source tree, including the
+There are 25 top-level test functions across the source tree, including the
 existing SSH gateway tests. New tests cover shared capacity, nested leases,
 cleanup isolation, pressure/hysteresis, malformed PSI, cancellation, claim
 limits/failures, old API fallback, bounded recovery, asynchronous HTTP rejection
-and backup lease lifetime.
+and backup lease lifetime. Recovery tests verify a job is freshly checked only
+after acquiring capacity and that terminal jobs and renewal failures never
+execute.
 
 Go 1.25.5 came from the existing builder image
 sha256:d3a42a6f5f831747c433cdeb8af65c017d0dcfd0f2fd875a0fed6afefb183b9e.
@@ -23,14 +25,17 @@ Docker socket or credential mounts. Embedded daemon/computer-use assets come
 from that builder image; no new daemon/computer-use build is claimed.
 
 Candidate Runner binary: /opt/codex-dsec-20260929/daytona-build/daytona-runner.
-SHA256: aa0f263dd609c4aaad7179396e617854b222ea66d1e4442190d1e661a2fea418.
+SHA256: 6e8b83bad5348cb319fa21cf2094b2a74ccda31887cf5edca1e3107d051e16cd.
 It has been built but not installed or executed against production.
 
 ## API
 
-Five Node tests pass, including real PostgreSQL integration: 10 concurrent
+Seven Node tests pass, including real PostgreSQL integration: 10 concurrent
 claims return a pending job once, cleanup selection excludes heavy jobs, and
-another Runner's rows remain unclaimed. The test database uses an isolated
+another Runner's rows remain unclaimed. Recovery renewal and stale failure use
+conditional status/version updates; the integration test checks that concurrent
+renewal and stale failure cannot both succeed and that terminal rows stay
+terminal. The test database uses an isolated
 container with no published ports and has been removed after validation.
 
 Full API TypeScript checking reports 23 diagnostics in BOTH the untouched

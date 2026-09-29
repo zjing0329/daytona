@@ -4,7 +4,7 @@
  */
 
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
-import { claimPendingJobs } from './job-admission'
+import { claimPendingJobs, renewRecoveryJob, failStaleJob } from './job-admission'
 import { JobConflictError } from '../errors/job-conflict.error'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository, LessThan, In, EntityManager } from 'typeorm'
@@ -434,11 +434,14 @@ export class JobService {
 
         for (const job of staleJobs) {
           try {
-            await this.updateJobStatus(
-              job.id,
-              JobStatus.FAILED,
+            const failed = await failStaleJob(
+              this.jobRepository, job, threshold,
               `Job timed out - no update received for ${timeoutMinutes} minutes`,
             )
+            if (!failed) continue
+            this.jobStateHandlerService.handleJobCompletion(failed).catch((error) => {
+              this.logger.error(`Error handling stale completion for job ${job.id}:`, error)
+            })
 
             this.logger.warn(
               `Marked job ${job.id} (type: ${job.type}, resource: ${job.resourceType} ${job.resourceId}) as failed due to timeout`,
@@ -457,6 +460,11 @@ export class JobService {
    * Atomically claim pending jobs by updating their status to IN_PROGRESS
    * This prevents duplicate processing of the same job
    */
+  async renewRecoveryJob(runnerId: string, jobId: string): Promise<JobDto | null> {
+    const job = await renewRecoveryJob(this.jobRepository, runnerId, jobId)
+    return job ? new JobDto(job) : null
+  }
+
   async claimAdmittedJobs(runnerId: string, jobClass: 'heavy' | 'cleanup', limit: number): Promise<JobDto[]> {
     return this.claimPendingJobs(runnerId, limit, jobClass)
   }

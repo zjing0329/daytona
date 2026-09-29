@@ -138,7 +138,10 @@ func TestRecoveredJobsShareBudget(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m := admission.New(1, 1, nil)
-	s := &Service{admission: m}
+	s := testService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(apiclient.Job{Id: "recover", Type: apiclient.JOBTYPE_CREATE_SANDBOX, Status: apiclient.JOBSTATUS_IN_PROGRESS})
+	}, m)
 	started := make(chan struct{}, 1)
 	s.executor = fakeExecutor{func(ctx context.Context, j *apiclient.Job) { started <- struct{}{}; <-ctx.Done() }}
 	jobs := []apiclient.Job{{Type: apiclient.JOBTYPE_CREATE_SANDBOX}, {Type: apiclient.JOBTYPE_CREATE_SANDBOX}}
@@ -190,7 +193,11 @@ func TestCleanupRecoveryRunsWhileHeavyRecoveryBlocked(t *testing.T) {
 	_, release, _ := m.Try(ctx, admission.Heavy)
 	defer release()
 	started := make(chan string, 1)
-	s := &Service{admission: m, executor: fakeExecutor{func(ctx context.Context, j *apiclient.Job) { started <- j.Id }}}
+	s := testService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(apiclient.Job{Id: "cleanup", Type: apiclient.JOBTYPE_DESTROY_SANDBOX, Status: apiclient.JOBSTATUS_IN_PROGRESS})
+	}, m)
+	s.executor = fakeExecutor{func(ctx context.Context, j *apiclient.Job) { started <- j.Id }}
 	jobs := []apiclient.Job{{Id: "heavy", Type: apiclient.JOBTYPE_CREATE_SANDBOX}, {Id: "cleanup", Type: apiclient.JOBTYPE_DESTROY_SANDBOX}}
 	done := make(chan struct{})
 	go func() { s.recoverClass(ctx, jobs, admission.Heavy); close(done) }()
@@ -205,4 +212,94 @@ func TestCleanupRecoveryRunsWhileHeavyRecoveryBlocked(t *testing.T) {
 	}
 	cancel()
 	<-done
+}
+
+func TestRecoveryRevalidatesAfterWaitingForCapacity(t *testing.T) {
+	for _, terminal := range []bool{false, true} {
+		t.Run(map[bool]string{false: "eligible", true: "became-failed"}[terminal], func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			m := admission.New(1, 1, nil)
+			_, release, _ := m.Try(ctx, admission.Heavy)
+			var reads, executed atomic.Int32
+			var nowFailed atomic.Bool
+			s := testService(t, func(w http.ResponseWriter, r *http.Request) {
+				reads.Add(1)
+				if m.Used(admission.Heavy) != 1 {
+					t.Error("revalidated before reserving")
+				}
+				status := apiclient.JOBSTATUS_IN_PROGRESS
+				if nowFailed.Load() {
+					status = apiclient.JOBSTATUS_FAILED
+				}
+				w.Header().Set("Content-Type", "application/json")
+				payload := "fresh"
+				json.NewEncoder(w).Encode(apiclient.Job{Id: "recover", Type: apiclient.JOBTYPE_CREATE_SANDBOX, Status: status, Payload: &payload})
+			}, m)
+			s.executor = fakeExecutor{func(ctx context.Context, j *apiclient.Job) {
+				executed.Add(1)
+				if j.GetPayload() != "fresh" {
+					t.Error("executed stale startup payload")
+				}
+			}}
+			done := make(chan struct{})
+			go func() {
+				s.recoverClass(ctx, []apiclient.Job{{Id: "recover", Type: apiclient.JOBTYPE_CREATE_SANDBOX, Status: apiclient.JOBSTATUS_IN_PROGRESS}}, admission.Heavy)
+				close(done)
+			}()
+			time.Sleep(20 * time.Millisecond)
+			if reads.Load() != 0 {
+				t.Fatal("read before waiting for capacity")
+			}
+			nowFailed.Store(terminal)
+			release()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("recovery stuck")
+			}
+			want := int32(1)
+			if terminal {
+				want = 0
+			}
+			if executed.Load() != want || reads.Load() != 1 {
+				t.Fatalf("executed=%d reads=%d", executed.Load(), reads.Load())
+			}
+			if m.Used(admission.Heavy) != 0 {
+				t.Fatal("revalidation leaked permit")
+			}
+		})
+	}
+}
+
+func TestRecoveryRenewalNegotiationAndFailClosed(t *testing.T) {
+	for _, status := range []int{200, 401, 403, 500} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			s := testService(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/jobs/admission/capabilities" {
+					w.Write([]byte("{\"version\":1,\"recoveryRenewal\":true}"))
+					return
+				}
+				if r.Method != http.MethodPost || r.URL.Path != "/jobs/admission/recover/recover" {
+					t.Error("unexpected recovery request", r.Method, r.URL.Path)
+				}
+				w.WriteHeader(status)
+				if status == 200 {
+					w.Write([]byte("{\"version\":1,\"job\":null}"))
+				}
+			}, admission.New(1, 1, nil))
+			supported, err := s.supportsAdmission(context.Background())
+			if err != nil || !supported || !s.recoveryRenewal {
+				t.Fatal("renewal not negotiated", err)
+			}
+			job, err := s.revalidateRecovery(context.Background(), "recover")
+			if status == 200 && (job != nil || err != nil) {
+				t.Fatal("terminal null must be skipped")
+			}
+			if status != 200 && err == nil {
+				t.Fatal("renewal failure must not downgrade")
+			}
+		})
+	}
 }

@@ -31,12 +31,13 @@ type PollerServiceConfig struct {
 	Admission   *admission.Manager
 }
 type Service struct {
-	log         *slog.Logger
-	pollTimeout time.Duration
-	pollLimit   int
-	executor    jobExecutor
-	client      *apiclient.APIClient
-	admission   *admission.Manager
+	log             *slog.Logger
+	pollTimeout     time.Duration
+	pollLimit       int
+	executor        jobExecutor
+	client          *apiclient.APIClient
+	admission       *admission.Manager
+	recoveryRenewal bool
 }
 type reservation struct {
 	ctx            context.Context
@@ -119,10 +120,49 @@ func (s *Service) recoverClass(ctx context.Context, jobs []apiclient.Job, class 
 		if err != nil {
 			return
 		}
-		job := jobs[i]
+		job, err := s.revalidateRecovery(leased, jobs[i].GetId())
+		if err != nil {
+			release()
+			s.log.ErrorContext(ctx, "Cannot revalidate recovery job; skipping execution", "job_id", jobs[i].GetId(), "error", err)
+			continue
+		}
+		if job == nil || job.GetStatus() != apiclient.JOBSTATUS_IN_PROGRESS || admission.ClassForJob(string(job.GetType())) != class {
+			release()
+			s.log.InfoContext(ctx, "Recovery job is no longer eligible", "job_id", jobs[i].GetId())
+			continue
+		}
 		active.Add(1)
-		go func() { defer active.Done(); defer release(); s.executor.Execute(leased, &job) }()
+		go func() { defer active.Done(); defer release(); s.executor.Execute(leased, job) }()
 	}
+}
+
+// Revalidate only after acquiring capacity: the startup list may be older than
+// the API's stale-job deadline by the time a queued recovery can actually run.
+func (s *Service) revalidateRecovery(ctx context.Context, id string) (*apiclient.Job, error) {
+	if s.recoveryRenewal {
+		var result struct {
+			Version int
+			Job     *apiclient.Job
+		}
+		status, err := s.admissionRequestMethod(ctx, http.MethodPost, "/jobs/admission/recover/"+url.PathEscape(id), nil, &result)
+		if status == http.StatusNotFound {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if result.Version != 1 {
+			return nil, fmt.Errorf("recovery renewal response missing version 1")
+		}
+		return result.Job, nil
+	}
+	freshCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	job, resp, err := s.client.JobsAPI.GetJob(freshCtx, id).Execute()
+	if resp != nil && resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	return job, err
 }
 
 func (s *Service) recoveryJobs(ctx context.Context) ([]apiclient.Job, error) {
@@ -224,7 +264,10 @@ func (s *Service) loop(ctx context.Context, class admission.Class, legacy bool) 
 	}
 }
 func (s *Service) supportsAdmission(ctx context.Context) (bool, error) {
-	var result struct{ Version int }
+	var result struct {
+		Version         int
+		RecoveryRenewal bool
+	}
 	status, err := s.admissionRequest(ctx, "/jobs/admission/capabilities", nil, &result)
 	if status == http.StatusNotFound {
 		return false, nil
@@ -235,6 +278,7 @@ func (s *Service) supportsAdmission(ctx context.Context) (bool, error) {
 	if result.Version != 1 {
 		return false, fmt.Errorf("unsupported admission API version %d", result.Version)
 	}
+	s.recoveryRenewal = result.RecoveryRenewal
 	return true, nil
 }
 func (s *Service) pollJobs(ctx context.Context, class admission.Class, limit int, legacy bool) ([]apiclient.Job, error) {
@@ -267,6 +311,9 @@ func (s *Service) pollJobs(ctx context.Context, class admission.Class, limit int
 	return result.Jobs, nil
 }
 func (s *Service) admissionRequest(ctx context.Context, path string, query url.Values, result any) (int, error) {
+	return s.admissionRequestMethod(ctx, http.MethodGet, path, query, result)
+}
+func (s *Service) admissionRequestMethod(ctx context.Context, method string, path string, query url.Values, result any) (int, error) {
 	cfg := s.client.GetConfig()
 	base, err := cfg.ServerURLWithContext(ctx, "JobsAPIService.PollJobs")
 	if err != nil {
@@ -274,7 +321,7 @@ func (s *Service) admissionRequest(ctx context.Context, path string, query url.V
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, strings.TrimRight(base, "/")+path+"?"+query.Encode(), nil)
+	req, err := http.NewRequestWithContext(reqCtx, method, strings.TrimRight(base, "/")+path+"?"+query.Encode(), nil)
 	if err != nil {
 		return 0, err
 	}

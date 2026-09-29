@@ -54,9 +54,11 @@ def barrier(record):
     ids=record['protectedIds']
     if not ids:return
     # Row locks wait for pre-lease DELETE transactions. A later DELETE rechecks its lease under the same lock.
-    query='BEGIN; SET LOCAL lock_timeout=\'10s\'; SELECT COALESCE(json_agg(x),\'[]\'::json) FROM (SELECT id,"runnerId","desiredState" FROM sandbox WHERE id IN ('+','.join(lit(i)+'::uuid' for i in ids)+') ORDER BY id FOR UPDATE) x; COMMIT;'
-    lines=sql(query).splitlines()
-    rows=json.loads(next(line for line in lines if line.startswith('[')))
+    query='BEGIN; SET LOCAL lock_timeout=\'10s\'; SELECT COALESCE(json_agg(x),\'[]\'::json) FROM (SELECT id,"runnerId","desiredState" FROM sandbox WHERE id IN ('+','.join(lit(i) for i in ids)+') ORDER BY id FOR UPDATE) x; COMMIT;'
+    output=sql(query)
+    start=output.find('[')
+    if start<0: raise RuntimeError('Maintenance barrier returned no row snapshot')
+    rows,_=json.JSONDecoder().raw_decode(output[start:])
     if {r['id'] for r in rows}!=set(ids) or any(r['runnerId']!=record['runnerId'] or r['desiredState']!='started' for r in rows):
         raise RuntimeError('A protected sandbox changed runner/desired state; abort maintenance before stopping')
 def summary(record):

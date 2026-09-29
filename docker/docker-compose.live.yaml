@@ -1,0 +1,49 @@
+# Daytona compose overlay. Rendered from cluster/inventory.env by
+# jumper/daytona-limits-apply.sh, which installs it on the control plane as
+# /opt/daytona/docker/docker-compose.live.yaml and recreates the api container.
+services:
+  api:
+    environment:
+      PROXY_DOMAIN: modeltest.cloud
+      PROXY_PROTOCOL: https
+      PROXY_TEMPLATE_URL: https://{{PORT}}-{{sandboxId}}.modeltest.cloud
+      # Rate limits — throttlers are only registered when BOTH ttl+limit are
+      # set (app.module.ts filters undefined), so without these the API has
+      # no rate limiting at all. Counters are shared per-org (one org = one
+      # bucket for all MCP traffic), hence the generous authenticated limit.
+      RATE_LIMIT_AUTHENTICATED_TTL: "60"
+      RATE_LIMIT_AUTHENTICATED_LIMIT: "12000"
+      RATE_LIMIT_SANDBOX_CREATE_TTL: "60"
+      RATE_LIMIT_SANDBOX_CREATE_LIMIT: "120"
+      RATE_LIMIT_SANDBOX_LIFECYCLE_TTL: "60"
+      RATE_LIMIT_SANDBOX_LIFECYCLE_LIMIT: "600"
+      RATE_LIMIT_ANONYMOUS_TTL: "60"
+      RATE_LIMIT_ANONYMOUS_LIMIT: "120"
+      RATE_LIMIT_FAILED_AUTH_TTL: "300"
+      RATE_LIMIT_FAILED_AUTH_LIMIT: "10"
+      # new regions created from here on do not enforce quota rows; orchestrator owns per-sandbox sizing
+      DEFAULT_REGION_ENFORCE_QUOTAS: "false"
+  proxy:
+    environment:
+      PROXY_PROTOCOL: https
+  minio:
+    ports:
+      - 9000:9000
+  jaeger:
+    # all-in-one defaults to the in-memory span store with --memory.max-traces
+    # unset, which means unbounded: traces are retained until the process dies.
+    # The otel collector's trace pipeline samples nothing (a `batch` processor
+    # groups spans, it never drops them), and the MCP server emits spans even at
+    # rest — warm-pool churn, the 180s activity heartbeat, the 180s scavenger
+    # scan. So this grew ~1.9 GiB/hour on an idle control plane and reached
+    # 39 GiB of the box's 60 GiB, while nothing was reading it (no connection
+    # has ever been made to the UI port).
+    #
+    # Cap the buffer rather than drop the exporter: tracing costs nothing when
+    # bounded, and the one time the control plane misbehaves it is the only
+    # view into what the api actually did.
+    environment:
+      MEMORY_MAX_TRACES: "20000"
+    # Backstop, not the mechanism. If MEMORY_MAX_TRACES is ever wrong or
+    # ignored, this turns a fleet-wide swap storm into one restarting container.
+    mem_limit: 4g

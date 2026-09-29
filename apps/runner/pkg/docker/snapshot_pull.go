@@ -10,10 +10,16 @@ import (
 	"strings"
 
 	common_errors "github.com/daytonaio/common-go/pkg/errors"
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/api/dto"
 )
 
 func (d *DockerClient) PullSnapshot(ctx context.Context, req dto.PullSnapshotRequestDTO) error {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Heavy)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	defer release()
 	// Pull the image using the pull registry (or none for public images)
 	_, err := d.PullImage(ctx, req.Snapshot, req.Registry, nil)
 	if err != nil {

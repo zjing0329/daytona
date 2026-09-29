@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/daytonaio/common-go/pkg/utils"
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/cache"
 	"github.com/daytonaio/runner/pkg/common"
 	"github.com/daytonaio/runner/pkg/netrules"
@@ -20,6 +21,7 @@ import (
 )
 
 type DockerClientConfig struct {
+	Admission                    *admission.Manager
 	ApiClient                    client.APIClient
 	BackupInfoCache              *cache.BackupInfoCache
 	Logger                       *slog.Logger
@@ -136,6 +138,7 @@ func NewDockerClient(ctx context.Context, config DockerClientConfig) (*DockerCli
 	}
 
 	return &DockerClient{
+		admission:                    config.Admission,
 		apiClient:                    config.ApiClient,
 		backupInfoCache:              config.BackupInfoCache,
 		pullTracker:                  &common.Tracker[string]{},
@@ -192,6 +195,7 @@ func (d *DockerClient) ApiClient() client.APIClient {
 const RUNNER_BRIDGE_NETWORK_NAME = "runner-bridge"
 
 type DockerClient struct {
+	admission                    *admission.Manager
 	apiClient                    client.APIClient
 	backupInfoCache              *cache.BackupInfoCache
 	pullTracker                  *common.Tracker[string]

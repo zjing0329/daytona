@@ -7,12 +7,18 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/api/dto"
 	"github.com/daytonaio/runner/pkg/common"
 	"github.com/daytonaio/runner/pkg/models"
 )
 
 func (d *DockerClient) RecoverSandbox(ctx context.Context, sandboxId string, recoverDto dto.RecoverSandboxDTO) error {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Heavy)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	defer release()
 	// Deduce recovery type from error reason, falling back to backup error reason
 	recoveryType := common.DeduceRecoveryType(recoverDto.ErrorReason)
 	if recoveryType == models.UnknownRecoveryType {

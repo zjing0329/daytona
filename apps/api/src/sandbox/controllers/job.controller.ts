@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Logger, Req, NotFoundException } from '@nestjs/common'
+import { Controller, Get, Post, Body, Param, Query, UseGuards, Logger, Req, NotFoundException, BadRequestException } from '@nestjs/common'
 import { AuthenticatedRateLimitGuard } from '../../common/guards/authenticated-rate-limit.guard'
 import { Request } from 'express'
 import { ApiOAuth2, ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger'
@@ -18,6 +18,7 @@ import {
   PollJobsResponseDto,
   UpdateJobStatusDto,
 } from '../dto/job.dto'
+import { parseAdmissionRequest } from '../services/job-admission'
 import { JobService } from '../services/job.service'
 import { JobAccessGuard } from '../guards/job-access.guard'
 import { AuthStrategy } from '../../auth/decorators/auth-strategy.decorator'
@@ -135,6 +136,31 @@ export class JobController {
     } finally {
       req.off('close', onClose)
     }
+  }
+
+  // Separate routes make old API detection unambiguous: an old API returns
+  // 404 rather than silently ignoring a new filter and claiming the wrong jobs.
+  @Get('admission/capabilities')
+  @ApiOperation({ summary: 'Runner admission protocol version', operationId: 'getJobAdmissionCapabilities' })
+  admissionCapabilities(): { version: number } {
+    return { version: 1 }
+  }
+
+  @Get('admission/poll')
+  @ApiOperation({ summary: 'Claim jobs within reserved node capacity', operationId: 'pollAdmittedJobs' })
+  async pollAdmittedJobs(
+    @IsRunnerAuthContext() runnerContext: RunnerAuthContext,
+    @Query('class') jobClass: string,
+    @Query('limit') limit: string,
+  ): Promise<{ version: number; jobs: JobDto[] }> {
+    let parsed: ReturnType<typeof parseAdmissionRequest>
+    try {
+      parsed = parseAdmissionRequest(jobClass, limit)
+    } catch (error) {
+      throw new BadRequestException(error.message)
+    }
+    const jobs = await this.jobService.claimAdmittedJobs(runnerContext.runnerId, parsed.jobClass, parsed.limit)
+    return { version: 1, jobs }
   }
 
   @Get(':jobId')

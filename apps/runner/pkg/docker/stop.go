@@ -8,11 +8,17 @@ import (
 	"fmt"
 
 	"github.com/daytonaio/common-go/pkg/utils"
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/models/enums"
 	"github.com/docker/docker/api/types/container"
 )
 
 func (d *DockerClient) Stop(ctx context.Context, containerId string, force bool) error {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Cleanup)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	defer release()
 	// Deduce sandbox state first
 	state, err := d.GetSandboxState(ctx, containerId)
 	if err == nil && state == enums.SandboxStateStopped {

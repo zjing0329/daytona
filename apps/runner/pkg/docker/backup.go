@@ -8,6 +8,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/api/dto"
 	"github.com/daytonaio/runner/pkg/models/enums"
 
@@ -22,6 +23,11 @@ type backupContext struct {
 var backup_context_map = cmap.New[backupContext]()
 
 func (d *DockerClient) CreateBackup(ctx context.Context, containerId string, backupDto dto.CreateBackupDTO) error {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Heavy)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	defer release()
 	// Cancel a backup if it's already in progress
 	backup_context, ok := backup_context_map.Get(containerId)
 	if ok {
@@ -30,10 +36,16 @@ func (d *DockerClient) CreateBackup(ctx context.Context, containerId string, bac
 
 	d.logger.InfoContext(ctx, "Creating backup for container", "containerId", containerId)
 
-	return d.createBackup(containerId, backupDto)
+	return d.createBackup(ctx, containerId, backupDto)
 }
 
 func (d *DockerClient) CreateBackupAsync(ctx context.Context, containerId string, backupDto dto.CreateBackupDTO) error {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Heavy)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	// Keep the lease after the HTTP request ends, until backup timeout/completion.
+	ctx = context.WithoutCancel(ctx)
 	// Cancel a backup if it's already in progress
 	backup_context, ok := backup_context_map.Get(containerId)
 	if ok {
@@ -48,7 +60,8 @@ func (d *DockerClient) CreateBackupAsync(ctx context.Context, containerId string
 	}
 
 	go func() {
-		err := d.createBackup(containerId, backupDto)
+		defer release()
+		err := d.createBackup(ctx, containerId, backupDto)
 		if err != nil {
 			d.logger.ErrorContext(ctx, "Error creating backup for container", "containerId", containerId, "error", err)
 		}
@@ -57,8 +70,8 @@ func (d *DockerClient) CreateBackupAsync(ctx context.Context, containerId string
 	return nil
 }
 
-func (d *DockerClient) createBackup(containerId string, backupDto dto.CreateBackupDTO) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(d.backupTimeoutMin)*time.Minute)
+func (d *DockerClient) createBackup(parent context.Context, containerId string, backupDto dto.CreateBackupDTO) error {
+	ctx, cancel := context.WithTimeout(parent, time.Duration(d.backupTimeoutMin)*time.Minute)
 
 	defer func() {
 		backupContext, ok := backup_context_map.Get(containerId)

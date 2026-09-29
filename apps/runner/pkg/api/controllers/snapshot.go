@@ -17,6 +17,7 @@ import (
 	"context"
 
 	"github.com/daytonaio/runner/cmd/runner/config"
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/api/dto"
 	"github.com/daytonaio/runner/pkg/runner"
 	"github.com/gin-gonic/gin"
@@ -109,6 +110,12 @@ func PullSnapshot(generalCtx context.Context, logger *slog.Logger) func(ctx *gin
 			return
 		}
 
+		operationCtx, release, admissionErr := runner.Docker.ReserveOperation(generalCtx, admission.Heavy)
+		if admissionErr != nil {
+			ctx.Header("Retry-After", "1")
+			ctx.Error(admissionErr)
+			return
+		}
 		cacheKey := request.Snapshot
 		if request.DestinationRef != nil {
 			cacheKey = *request.DestinationRef
@@ -120,7 +127,8 @@ func PullSnapshot(generalCtx context.Context, logger *slog.Logger) func(ctx *gin
 		}
 
 		go func() {
-			err := runner.Docker.PullSnapshot(generalCtx, request)
+			defer release()
+			err := runner.Docker.PullSnapshot(operationCtx, request)
 			if err != nil {
 				logger.DebugContext(generalCtx, "Pull snapshot failed", "cacheKey", cacheKey, "error", err)
 				err = runner.SnapshotErrorCache.SetError(generalCtx, cacheKey, err.Error())
@@ -175,13 +183,20 @@ func BuildSnapshot(generalCtx context.Context, logger *slog.Logger) func(ctx *gi
 			return
 		}
 
+		operationCtx, release, admissionErr := runner.Docker.ReserveOperation(generalCtx, admission.Heavy)
+		if admissionErr != nil {
+			ctx.Header("Retry-After", "1")
+			ctx.Error(admissionErr)
+			return
+		}
 		err = runner.SnapshotErrorCache.RemoveError(generalCtx, request.Snapshot)
 		if err != nil {
 			logger.ErrorContext(generalCtx, "Failed to remove snapshot error cache entry", "cacheKey", request.Snapshot, "error", err)
 		}
 
 		go func() {
-			err := runner.Docker.BuildSnapshot(generalCtx, request)
+			defer release()
+			err := runner.Docker.BuildSnapshot(operationCtx, request)
 			if err != nil {
 				logger.DebugContext(generalCtx, "Build snapshot failed", "cacheKey", request.Snapshot, "error", err)
 				err = runner.SnapshotErrorCache.SetError(generalCtx, request.Snapshot, err.Error())

@@ -15,6 +15,10 @@ class HelperTests(unittest.TestCase):
     self.assertIn('ORDER BY id FOR UPDATE',sql.call_args[0][0])
   with patch.object(h,'sql',return_value=json.dumps([{'id':ID,'runnerId':RUNNER,'desiredState':'started'}])):h.barrier(record)
   with patch.object(h,'sql',side_effect=AssertionError('empty IDs must not lock arbitrary rows')):h.barrier({'protectedIds':[]})
+ def test_barrier_rejects_unexpected_transaction_tail(self):
+  rows=[{'id':ID,'runnerId':RUNNER,'desiredState':'started'}]
+  with patch.object(h,'sql',return_value=json.dumps(rows)+'\nUNEXPECTED'):
+   with self.assertRaises(RuntimeError):h.barrier({'protectedIds':[ID],'runnerId':RUNNER})
  def test_private_state_and_owner_not_in_status(self):
   record={'name':'a2','runnerId':RUNNER,'protectedIds':[ID],'owner':'secret-owner'}
   with tempfile.TemporaryDirectory() as tmp:

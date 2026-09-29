@@ -58,7 +58,8 @@ def barrier(record):
     output=sql(query)
     start=output.find('[')
     if start<0: raise RuntimeError('Maintenance barrier returned no row snapshot')
-    rows,_=json.JSONDecoder().raw_decode(output[start:])
+    rows,end=json.JSONDecoder().raw_decode(output[start:])
+    if output[start+end:].strip() not in ('', 'COMMIT'): raise RuntimeError('Unexpected barrier transaction output')
     if {r['id'] for r in rows}!=set(ids) or any(r['runnerId']!=record['runnerId'] or r['desiredState']!='started' for r in rows):
         raise RuntimeError('A protected sandbox changed runner/desired state; abort maintenance before stopping')
 def summary(record):

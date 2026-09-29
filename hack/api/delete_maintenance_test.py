@@ -22,6 +22,21 @@ class HelperTests(unittest.TestCase):
   with patch.object(h,'redis',return_value=[-1,1]):
    result=h.summary(record);self.assertTrue(result['latched']);self.assertTrue(result['owned']);self.assertNotIn('secret-owner',json.dumps(result))
   with patch.object(h,'redis',return_value=[-2,0]):self.assertFalse(h.summary(record)['owned'])
+ @unittest.skipUnless(os.environ.get('DSEC_TEST_POSTGRES_CONTAINER'),'explicit isolated PostgreSQL container required')
+ def test_real_varchar_id_barrier_matches_production_schema(self):
+  container=os.environ['DSEC_TEST_POSTGRES_CONTAINER']
+  self.assertEqual(container,'daytona-delete-guard-test-db')
+  def query(q):
+   return subprocess.check_output(['docker','exec',container,'psql','-v','ON_ERROR_STOP=1','-U','postgres','-d','delete_test','-At','-c',q],text=True).strip()
+  query('CREATE TABLE sandbox(id character varying PRIMARY KEY,"runnerId" uuid,"desiredState" text)')
+  try:
+   ids=[ID,'00000000-0000-4000-8000-000000000022']
+   for sandbox_id in ids:query('INSERT INTO sandbox VALUES('+h.lit(sandbox_id)+','+h.lit(RUNNER)+",'started')")
+   with patch.object(h,'sql',side_effect=query):h.barrier({'protectedIds':ids,'runnerId':RUNNER})
+   query("UPDATE sandbox SET \"desiredState\"='destroyed'")
+   with patch.object(h,'sql',side_effect=query):
+    with self.assertRaises(RuntimeError):h.barrier({'protectedIds':[ID],'runnerId':RUNNER})
+  finally:query('DROP TABLE sandbox')
  @unittest.skipUnless(os.environ.get('DSEC_TEST_REDIS_CONTAINER'),'explicit isolated Redis container required')
  def test_real_lua_owner_latch_renew_clear(self):
   container=os.environ['DSEC_TEST_REDIS_CONTAINER']

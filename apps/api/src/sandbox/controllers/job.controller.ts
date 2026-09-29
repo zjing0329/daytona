@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Logger, Req, NotFoundException, BadRequestException } from '@nestjs/common'
+import { Controller, Get, Post, Body, Param, Query, UseGuards, Logger, Req, NotFoundException, BadRequestException, HttpCode } from '@nestjs/common'
 import { AuthenticatedRateLimitGuard } from '../../common/guards/authenticated-rate-limit.guard'
 import { Request } from 'express'
 import { ApiOAuth2, ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger'
@@ -164,6 +164,7 @@ export class JobController {
   }
 
   @Post('admission/recover/:jobId')
+  @HttpCode(200)
   @ApiOperation({ summary: 'Renew eligible recovery work after reserving node capacity', operationId: 'renewRecoveryJob' })
   @UseGuards(JobAccessGuard)
   async renewRecoveryJob(

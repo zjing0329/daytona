@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Root-only DELETE lease. Does not change sandbox rows or consume lifecycle jobs.
+"""Root-only DELETE lease and verified Runner runtime reporting.
+Lease actions never change sandbox rows or consume lifecycle jobs.
+report-verified-running uses the existing authenticated Runner state-report endpoint.
 Enter is a 300-second preparation lease; latch before stopping any inner container.
 A latched lease never expires: release only after candidate/rollback health and ID checks.
 """
-import argparse, datetime, hashlib, json, os, subprocess, uuid
+import argparse, datetime, hashlib, json, os, subprocess, uuid, urllib.request, urllib.error
 from pathlib import Path
 TARGETS = {"a2":"http://192.168.0.149:3003", "a3":"http://192.168.0.62:3003", "a4":"http://192.168.0.231:3003", "a5":"http://192.168.0.162:3003"}
 PREFIX = 'runner:maintenance:delete:'
@@ -65,11 +67,79 @@ def barrier(record):
 def summary(record):
     remaining,owned=redis('status',record)
     return {'name':record['name'],'runnerId':record['runnerId'],'owned':bool(owned),'remainingMs':remaining,'latched':remaining==-1,'protectedIds':record['protectedIds'],'ownerHash':hashlib.sha256(record['owner'].encode()).hexdigest()[:16]}
+
+def validate_running_proof(record, proof):
+    ids=set(record['protectedIds'])
+    if proof.get('name')!=record['name'] or proof.get('runnerId')!=record['runnerId'] or set(proof.get('protectedIds',[]))!=ids:
+        raise RuntimeError('Physical proof identity mismatch')
+    node,before=proof['node'],proof['before']
+    age=(datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(node['at'])).total_seconds()
+    if not 0<=age<=180: raise RuntimeError('Physical daemon proof must be no older than 180 seconds')
+    for field in ('all_ids','running_ids','running_sandbox_ids'):
+        if len(node[field])!=len(set(node[field])) or set(node[field])!=set(before[field]):
+            raise RuntimeError('Physical container identity set changed')
+    if set(node['running_sandbox_ids'])!=ids or node['sandbox_docker_ids']!=before['sandbox_docker_ids'] or set(node['sandbox_docker_ids'])!=ids:
+        raise RuntimeError('Protected sandbox/container mapping changed')
+    if set(node['sandbox_docker_ids'].values())!=set(node['running_ids']) or len(node['sandbox_docker_ids'])!=len(node['running_ids']):
+        raise RuntimeError('Physical container mapping is not one-to-one')
+    if sorted(node['volumes'],key=repr)!=sorted(before['volumes'],key=repr):
+        raise RuntimeError('Runner Docker data mounts changed')
+    if node.get('paused') or node.get('health')!='healthy' or node.get('http_status')!=200 or set(node['daemon_versions'])!=set(node['running_ids']) or any(not v for v in node['daemon_versions'].values()):
+        raise RuntimeError('Runner and every protected daemon must be healthy')
+
+def report_rows(record):
+    ids=','.join(lit(i) for i in record['protectedIds']) or 'NULL'
+    return json.loads(sql('SELECT COALESCE(json_agg(x),\'[]\'::json) FROM (SELECT id,"runnerId",state,"desiredState",pending FROM sandbox WHERE id IN ('+ids+') ORDER BY id) x'))
+
+def assert_report_preconditions(record, rows):
+    if redis('status',record)!=[-1,1]: raise RuntimeError('Verified report requires the owned persistent DELETE lease')
+    if {r['id'] for r in rows}!=set(record['protectedIds']) or any(r['runnerId']!=record['runnerId'] or r['pending'] or (r['state'],r['desiredState']) not in (('started','started'),('stopped','stopped')) for r in rows):
+        raise RuntimeError('Sandbox has a pending or conflicting control-plane intent')
+    ids=','.join(lit(i) for i in record['protectedIds']) or 'NULL'
+    since=lit(record['createdAt'])
+    audit=int(sql('SELECT count(*) FROM audit_log WHERE "targetType"=\'sandbox\' AND "targetId" IN ('+ids+') AND "createdAt">='+since+' AND "statusCode">=200 AND "statusCode"<300 AND action IN (\'stop\',\'archive\',\'delete\',\'start\',\'recover\')'))
+    jobs=int(sql('SELECT count(*) FROM job WHERE "resourceId" IN ('+ids+') AND "createdAt">='+since))
+    if audit or jobs: raise RuntimeError('Lifecycle request/job appeared during maintenance; do not overwrite its intent')
+
+def send_running_report(token, sandbox_id):
+    request=urllib.request.Request('http://127.0.0.1:3000/api/sandbox/'+sandbox_id+'/state',data=b'{"state":"started"}',method='PUT',headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
+    try:
+        with urllib.request.urlopen(request,timeout=10) as response:
+            if response.status!=200: raise RuntimeError('Runner state report did not return HTTP 200')
+    except urllib.error.URLError:
+        raise RuntimeError('Runner state report failed; retain maintenance protection') from None
+
+def report_verified_running(record, proof, result_path):
+    # This is the existing Runner observation endpoint, never POST/start (which can migrate an unschedulable node).
+    validate_running_proof(record,proof)
+    rows=report_rows(record);assert_report_preconditions(record,rows)
+    token=sql('SELECT "apiKey" FROM runner WHERE id='+lit(record['runnerId']))
+    if not token: raise RuntimeError('Runner reporting credential unavailable')
+    result={'name':record['name'],'runnerId':record['runnerId'],'source':'verified physical runtime via official Runner PUT state','startedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'before':rows,'reportedIds':[],'proofAt':proof['node']['at']}
+    write(result_path,result)
+    for original in rows:
+        current=report_rows(record);assert_report_preconditions(record,current)
+        validate_running_proof(record,proof)
+        row=next(r for r in current if r['id']==original['id'])
+        if row['state']=='started': continue
+        send_running_report(token,row['id'])
+        after=report_rows(record);assert_report_preconditions(record,after)
+        updated=next(r for r in after if r['id']==row['id'])
+        if (updated['state'],updated['desiredState'])!=('started','started'):
+            raise RuntimeError('Runner report was not reflected; retain maintenance protection')
+        if [r for r in current if r['id']!=row['id']]!=[r for r in after if r['id']!=row['id']]:
+            raise RuntimeError('Another sandbox changed during reporting; retain maintenance protection')
+        result['reportedIds'].append(row['id']);write(result_path,result)
+    after=report_rows(record);assert_report_preconditions(record,after)
+    if any(r['state']!='started' for r in after): raise RuntimeError('Not every protected sandbox is started')
+    result.update(after=after,completedAt=datetime.datetime.now(datetime.timezone.utc).isoformat());write(result_path,result)
+    return {'name':record['name'],'runnerId':record['runnerId'],'protected':len(rows),'reported':len(result['reportedIds']),'sameRunner':True,'lease':'owned+latched','evidence':str(result_path)}
+
 def main():
     if os.geteuid()!=0: raise RuntimeError('Run as root on API host')
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action',choices=['snapshot','enter','status','renew','latch','release']);p.add_argument('name',choices=TARGETS)
-    p.add_argument('--state-file',type=Path);p.add_argument('--ids-file',type=Path);p.add_argument('--ttl',type=int,default=300)
+    p.add_argument('action',choices=['snapshot','enter','status','renew','latch','release','report-verified-running','check-rollback-intent']);p.add_argument('name',choices=TARGETS)
+    p.add_argument('--proof-file',type=Path);p.add_argument('--state-file',type=Path);p.add_argument('--ids-file',type=Path);p.add_argument('--ttl',type=int,default=300)
     a=p.parse_args()
     if a.action=='snapshot':
         row=runner(a.name)
@@ -77,6 +147,15 @@ def main():
         pending=json.loads(sql("SELECT COALESCE(json_agg(x),'[]'::json) FROM (SELECT type,status,count(*) AS count FROM job WHERE \"runnerId\"="+lit(row['id'])+" AND status::text IN ('PENDING','IN_PROGRESS','pending','in_progress') GROUP BY type,status) x"))
         print(json.dumps({'name':a.name,'runnerId':row['id'],'sandboxes':sandbox_rows,'protectedIds':[x['id'] for x in sandbox_rows if x['state']=='started' and x['desiredState']=='started'],'activeJobs':pending}));return
     if not a.state_file or not a.state_file.is_absolute(): raise RuntimeError('Use an absolute private state path')
+    if a.action=='check-rollback-intent':
+        record=read_record(a.state_file,a.name)
+        rows=report_rows(record);assert_report_preconditions(record,rows)
+        print(json.dumps({'name':a.name,'runnerId':record['runnerId'],'allowed':True,'protected':len(rows),'lease':'owned+latched'}));return
+    if a.action=='report-verified-running':
+        if not a.proof_file or not a.proof_file.is_absolute() or a.proof_file.stat().st_mode & 0o077 or a.proof_file.stat().st_uid!=0: raise RuntimeError('Use a root-owned private physical proof file')
+        record=read_record(a.state_file,a.name)
+        result_path=a.proof_file.with_name(a.proof_file.stem+'-report.json')
+        print(json.dumps(report_verified_running(record,json.loads(a.proof_file.read_text()),result_path)));return
     if a.action=='enter':
         if not a.ids_file or a.ttl<30 or a.ttl>300: raise RuntimeError('Enter requires ids-file and TTL 30..300 seconds')
         if a.state_file.exists(): raise RuntimeError('State path already exists; do not overwrite an owner')

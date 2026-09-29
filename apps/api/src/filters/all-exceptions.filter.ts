@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
+import { RunnerDeleteMaintenanceError } from '../common/errors/runner-delete-maintenance.error'
+
 import { join } from 'node:path'
 import { STATUS_CODES } from 'node:http'
 import { Request, Response } from 'express'
@@ -76,6 +78,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       error = STATUS_CODES[HttpStatus.INTERNAL_SERVER_ERROR]
       message = 'An unexpected error occurred.'
       statusCode = HttpStatus.INTERNAL_SERVER_ERROR
+    }
+
+    if (exception instanceof RunnerDeleteMaintenanceError) {
+      response.setHeader('Retry-After', String(exception.retryAfterSeconds))
     }
 
     response.status(statusCode).json({

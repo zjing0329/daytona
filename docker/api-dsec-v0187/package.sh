@@ -9,5 +9,9 @@ for name in main.js main.js.map 3rdpartylicenses.txt; do
 done
 cp "$build_dir/workspace/apps/api/src/sandbox/controllers/job.controller.ts" "$context_dir/apps/api/src/sandbox/controllers/"
 cp "$build_dir/workspace/apps/api/src/sandbox/services/job.service.ts" "$build_dir/workspace/apps/api/src/sandbox/services/job-admission.ts" "$context_dir/apps/api/src/sandbox/services/"
+for relative in common/errors/runner-delete-maintenance.error.ts sandbox/repositories/sandbox.repository.ts sandbox/services/sandbox.service.ts filters/all-exceptions.filter.ts; do
+  mkdir -p "$context_dir/apps/api/src/$(dirname "$relative")"
+  cp "$build_dir/workspace/apps/api/src/$relative" "$context_dir/apps/api/src/$relative"
+done
 source_revision=$(git rev-parse HEAD)
 docker build --network=none --pull=false   -f "$source_dir/docker/api-dsec-v0187/Dockerfile.runtime"   --build-arg "SOURCE_REVISION=$source_revision"   -t "${DSEC_API_IMAGE_TAG:-deepdiver/daytona-api:v0.187.0-dsec-candidate}" "$context_dir"

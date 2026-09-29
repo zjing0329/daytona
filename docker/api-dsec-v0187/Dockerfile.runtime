@@ -5,4 +5,8 @@ COPY dist/apps/api/main.js dist/apps/api/main.js.map dist/apps/api/3rdpartylicen
 COPY apps/api/src/sandbox/controllers/job.controller.ts /daytona/apps/api/src/sandbox/controllers/job.controller.ts
 COPY apps/api/src/sandbox/services/job.service.ts /daytona/apps/api/src/sandbox/services/job.service.ts
 COPY apps/api/src/sandbox/services/job-admission.ts /daytona/apps/api/src/sandbox/services/job-admission.ts
+COPY apps/api/src/common/errors/runner-delete-maintenance.error.ts /daytona/apps/api/src/common/errors/runner-delete-maintenance.error.ts
+COPY apps/api/src/sandbox/repositories/sandbox.repository.ts /daytona/apps/api/src/sandbox/repositories/sandbox.repository.ts
+COPY apps/api/src/sandbox/services/sandbox.service.ts /daytona/apps/api/src/sandbox/services/sandbox.service.ts
+COPY apps/api/src/filters/all-exceptions.filter.ts /daytona/apps/api/src/filters/all-exceptions.filter.ts
 ENV VERSION=v0.187.0-dsec

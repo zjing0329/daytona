@@ -25,12 +25,13 @@ def health(seconds=120):
         time.sleep(2)
     raise RuntimeError('API health did not reach HTTP 200')
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('image');a=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('image');parser.add_argument('--expected-old-image',required=True);a=parser.parse_args()
     candidate=json.loads(run(['docker','image','inspect',a.image]))[0]
     revision=run(['git','rev-parse','HEAD']).strip()
     if candidate['Config'].get('Labels',{}).get('org.opencontainers.image.revision')!=revision:raise RuntimeError('Candidate label is not the committed release revision')
     old=inspect('daytona-api-1')
-    if old['Image']!=BASE:raise RuntimeError('Live API is no longer the reviewed base; stop for a fresh review')
+    if old['Image']!=a.expected_old_image:raise RuntimeError('Live API is no longer the reviewed previous image; stop for a fresh review')
+    old_image=old['Image']
     stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     backup=ROOT/('api-rollout-'+stamp);backup.mkdir(mode=0o700)
     save(backup/'container-before.json',json.dumps(old,indent=2))
@@ -45,11 +46,12 @@ def main():
     desired=resolved['services']['api'].get('environment',{})
     if any(str(v or '')!=actual.get(k,'') for k,v in desired.items()):raise RuntimeError('Live API and compose environment differ; refusing unrelated changes')
     if OVERLAY.exists():save(backup/'previous-overlay.yaml',OVERLAY.read_text())
-    original_ref='daytonaio/daytona-api@'+BASE
+    original_ref='deepdiver/daytona-api:rollback-'+stamp
+    run(['docker','tag',old_image,original_ref])
     original_yaml='services:\n  api:\n    image: '+original_ref+'\n'
     save(backup/'rollback-overlay.yaml',original_yaml)
     rollback_cmd=base+['-f',str(OVERLAY),'up','-d','--no-deps','--pull','never','api']
-    save(backup/'rollback.json',json.dumps({'overlay':str(OVERLAY),'content':original_yaml,'command':rollback_cmd,'old_image':BASE},indent=2))
+    save(backup/'rollback.json',json.dumps({'overlay':str(OVERLAY),'content':original_yaml,'command':rollback_cmd,'old_image':old_image},indent=2))
     save(backup/'rollback.py','import json,subprocess\nfrom pathlib import Path\nx=json.loads((Path(__file__).parent/"rollback.json").read_text())\nPath(x["overlay"]).write_text(x["content"])\nsubprocess.run(x["command"],check=True)\n')
     save(OVERLAY,'services:\n  api:\n    image: '+a.image+'\n')
     try:
@@ -64,12 +66,12 @@ def main():
         for name in ['a2','a3','a4','a5']:
             state.append(json.loads(run([sys.executable,str(HERE/'runner_gate.py'),'ready',name,'--after',new['State']['StartedAt']])))
         save(backup/'container-after.json',json.dumps(new,indent=2))
-        report={'status':'healthy','at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'source':revision,'before_container':old['Id'],'after_container':new['Id'],'old_image':BASE,'new_image':candidate['Id'],'image_ref':a.image,'capabilities':capability,'runners':state,'backup':str(backup),'rollback':str(backup/'rollback.py')}
+        report={'status':'healthy','at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'source':revision,'before_container':old['Id'],'after_container':new['Id'],'old_image':old_image,'new_image':candidate['Id'],'image_ref':a.image,'capabilities':capability,'runners':state,'backup':str(backup),'rollback':str(backup/'rollback.py')}
         save(backup/'report.json',json.dumps(report,indent=2));print(json.dumps(report))
     except Exception as error:
         save(OVERLAY,original_yaml)
         save(backup/'automatic-rollback.log',run(rollback_cmd))
         health()
-        if inspect('daytona-api-1')['Image']!=BASE:raise RuntimeError('Rollback image verification failed') from error
+        if inspect('daytona-api-1')['Image']!=old_image:raise RuntimeError('Rollback image verification failed') from error
         print(json.dumps({'status':'rolled_back','reason':str(error),'backup':str(backup)}));raise
 if __name__=='__main__':main()

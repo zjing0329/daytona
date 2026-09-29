@@ -5,12 +5,15 @@ package poller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	apiclient "github.com/daytonaio/daytona/libs/api-client-go"
 	"github.com/daytonaio/runner/pkg/admission"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -301,5 +304,138 @@ func TestRecoveryRenewalNegotiationAndFailClosed(t *testing.T) {
 				t.Fatal("renewal failure must not downgrade")
 			}
 		})
+	}
+}
+
+// The real API ListJobsQueryDto uses PageLimit with a maximum of 200.
+// Do not silently accept arbitrary limits in recovery HTTP fixtures.
+func productionRecoveryQuery(w http.ResponseWriter, r *http.Request) (int, int, bool) {
+	page, pageErr := strconv.Atoi(r.URL.Query().Get("page"))
+	limit, limitErr := strconv.Atoi(r.URL.Query().Get("limit"))
+	if r.URL.Path != "/jobs" || r.Method != http.MethodGet || pageErr != nil || page < 1 || limitErr != nil || limit < 1 || limit > 200 || r.URL.Query().Get("status") != "IN_PROGRESS" {
+		http.Error(w, `{"message":"page must be >=1; limit must be <=200; status must be IN_PROGRESS"}`, http.StatusBadRequest)
+		return 0, 0, false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	return page, limit, true
+}
+
+func TestRecoveryPaginationMatchesProductionHTTPValidation(t *testing.T) {
+	for _, total := range []int{0, 99, 100, 101, 200, 201} {
+		t.Run(fmt.Sprint(total), func(t *testing.T) {
+			var pages []int
+			var pagesMu sync.Mutex
+			s := testService(t, func(w http.ResponseWriter, r *http.Request) {
+				page, limit, ok := productionRecoveryQuery(w, r)
+				if !ok {
+					return
+				}
+				if limit != 100 {
+					t.Errorf("recovery page size=%d; want production-compatible 100", limit)
+				}
+				pagesMu.Lock()
+				pages = append(pages, page)
+				pagesMu.Unlock()
+				items := []apiclient.Job{}
+				for i := (page - 1) * limit; i < page*limit && i < total; i++ {
+					items = append(items, apiclient.Job{Id: fmt.Sprint(i), Type: apiclient.JOBTYPE_CREATE_SANDBOX, Status: apiclient.JOBSTATUS_IN_PROGRESS})
+				}
+				json.NewEncoder(w).Encode(map[string]any{"items": items, "total": total, "page": page, "totalPages": (total + limit - 1) / limit})
+			}, admission.New(1, 1, nil))
+			// Prove this fixture reproduces production's rejected old request.
+			_, response, err := s.client.JobsAPI.ListJobs(context.Background()).Status(apiclient.JOBSTATUS_IN_PROGRESS).Page(1).Limit(500).Execute()
+			if err == nil || response.StatusCode != http.StatusBadRequest {
+				t.Fatal("fixture accepted over-limit recovery request")
+			}
+			jobs, err := s.recoveryJobs(context.Background())
+			if err != nil || len(jobs) != total {
+				t.Fatalf("recovered=%d want=%d err=%v", len(jobs), total, err)
+			}
+			for i, job := range jobs {
+				if job.Id != fmt.Sprint(i) || job.Status != apiclient.JOBSTATUS_IN_PROGRESS {
+					t.Fatalf("missing, duplicated or wrong-status job at %d", i)
+				}
+			}
+			pagesMu.Lock()
+			defer pagesMu.Unlock()
+			if len(pages) != total/100+1 {
+				t.Fatalf("pages=%v truncated recovery or failed to stop", pages)
+			}
+			for i, page := range pages {
+				if page != i+1 {
+					t.Fatalf("nonsequential pages=%v", pages)
+				}
+			}
+		})
+	}
+}
+
+func TestRecoveryPaginationFailureDoesNotReturnPartialWork(t *testing.T) {
+	s := testService(t, func(w http.ResponseWriter, r *http.Request) {
+		page, limit, ok := productionRecoveryQuery(w, r)
+		if !ok {
+			return
+		}
+		if page == 2 {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		items := make([]apiclient.Job, limit)
+		for i := range items {
+			items[i] = apiclient.Job{Id: fmt.Sprint(i), Status: apiclient.JOBSTATUS_IN_PROGRESS}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"items": items, "total": 101, "page": page, "totalPages": 2})
+	}, admission.New(1, 1, nil))
+	jobs, err := s.recoveryJobs(context.Background())
+	if err == nil || jobs != nil {
+		t.Fatalf("partial startup recovery escaped: jobs=%d error=%v", len(jobs), err)
+	}
+}
+
+func TestStartupWithProductionPaginationReachesCleanupClaim(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	executed := make(chan string, 1)
+	var recoverySeen, claimed atomic.Bool
+	s := testService(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/jobs":
+			_, limit, ok := productionRecoveryQuery(w, r)
+			if !ok {
+				return
+			}
+			if limit != 100 {
+				t.Errorf("unexpected recovery limit %d", limit)
+			}
+			recoverySeen.Store(true)
+			json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "total": 0, "page": 1, "totalPages": 0})
+		case "/jobs/admission/capabilities":
+			json.NewEncoder(w).Encode(map[string]any{"version": 1, "recoveryRenewal": true})
+		case "/jobs/admission/poll":
+			jobs := []apiclient.Job{}
+			if r.URL.Query().Get("class") == "cleanup" && claimed.CompareAndSwap(false, true) {
+				jobs = append(jobs, apiclient.Job{Id: "pending-destroy", Type: apiclient.JOBTYPE_DESTROY_SANDBOX, Status: apiclient.JOBSTATUS_IN_PROGRESS})
+			}
+			json.NewEncoder(w).Encode(map[string]any{"version": 1, "jobs": jobs})
+		default:
+			http.NotFound(w, r)
+		}
+	}, admission.New(1, 1, nil))
+	s.executor = fakeExecutor{execute: func(_ context.Context, j *apiclient.Job) { executed <- j.Id; cancel() }}
+	done := make(chan struct{})
+	go func() { defer close(done); s.Start(ctx) }()
+	select {
+	case id := <-executed:
+		if id != "pending-destroy" || !recoverySeen.Load() {
+			t.Fatal("cleanup bypassed startup recovery")
+		}
+	case <-time.After(3 * time.Second):
+		cancel()
+		t.Fatal("startup recovery blocked all new claims")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("poller did not stop")
 	}
 }

@@ -165,10 +165,14 @@ func (s *Service) revalidateRecovery(ctx context.Context, id string) (*apiclient
 	return job, err
 }
 
+// Keep startup recovery within the production API pagination DTO maximum (200).
+// A shared size also prevents truncating recovery when changing the request limit.
+const recoveryPageSize = 100
+
 func (s *Service) recoveryJobs(ctx context.Context) ([]apiclient.Job, error) {
 	var result []apiclient.Job
 	for page := 1; ; page++ {
-		resp, _, err := s.client.JobsAPI.ListJobs(ctx).Status(apiclient.JOBSTATUS_IN_PROGRESS).Page(float32(page)).Limit(500).Execute()
+		resp, _, err := s.client.JobsAPI.ListJobs(ctx).Status(apiclient.JOBSTATUS_IN_PROGRESS).Page(float32(page)).Limit(recoveryPageSize).Execute()
 		if err != nil {
 			return nil, err
 		}
@@ -176,7 +180,7 @@ func (s *Service) recoveryJobs(ctx context.Context) ([]apiclient.Job, error) {
 			return result, nil
 		}
 		result = append(result, resp.Items...)
-		if len(resp.Items) < 500 {
+		if len(resp.Items) < recoveryPageSize {
 			return result, nil
 		}
 	}

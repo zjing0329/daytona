@@ -5,7 +5,7 @@ import argparse, datetime, hashlib, json, os, pathlib, subprocess, time, uuid
 API_BASE = "daytonaio/daytona-api@sha256:8de6315a378430a58a44ce6c20b41050c2f602446e75f3ff559edbaa0b3758a7"
 FAKE_API = r"""
 const http = require('http');
-const counts = {};
+const counts = {__recovery_limits:[], __recovery_pages:[], __invalid_recovery_limits:0};
 http.createServer((req,res) => {
   const path = req.url.split('?')[0], key = req.method+' '+path;
   req.resume(); req.on('end', () => {
@@ -14,7 +14,15 @@ http.createServer((req,res) => {
     let body={};
     if(path==='/api/jobs/admission/capabilities') body={version:1,recoveryRenewal:true};
     else if(path==='/api/jobs/admission/poll') body={version:1,jobs:[]};
-    else if(path==='/api/jobs') body={items:[],total:0,page:1,limit:500,totalPages:0};
+    else if(path==='/api/jobs') {
+      const query=new URL(req.url,'http://127.0.0.1').searchParams;
+      const limit=Number(query.get('limit')), page=Number(query.get('page')||1);
+      counts.__recovery_limits.push(limit);counts.__recovery_pages.push(page);
+      if(!Number.isInteger(limit)||limit<1||limit>200){
+        counts.__invalid_recovery_limits++;res.statusCode=400;
+        body={error:'limit must be between 1 and 200'};
+      } else body={items:[],total:0,page,limit,totalPages:0};
+    }
     else if(path==='/api/runners/healthcheck') body={};
     else {res.statusCode=404;body={error:'unsupported isolated test path'};}
     res.setHeader('Content-Type','application/json');res.end(JSON.stringify(body));
@@ -105,6 +113,9 @@ def main():
             checks+=1
         assert inspect(runner)["State"].get("Health",{}).get("Status")=="healthy"
         stats=json.loads(run("docker","exec",api,"node","-e",fake_request).stdout)
+        assert stats.get("__recovery_limits"),"Real Runner made no startup recovery request"
+        assert stats["__invalid_recovery_limits"]==0,"Runner recovery exceeded production DTO limit"
+        assert all(limit==100 for limit in stats["__recovery_limits"]),"Runner recovery did not use reviewed page size 100"
         assert stats.get("GET /api/jobs/admission/capabilities",0)>0
         assert stats.get("GET /api/jobs/admission/poll",0)>0
         assert stats.get("POST /api/runners/healthcheck",0)>=3

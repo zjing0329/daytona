@@ -1,0 +1,4 @@
+# Validate this local base tag against sha256:210536331a461cb811494f453d6a8d12a785d1df957a96d965c96266b006d9d2 before building.
+FROM deepdiver/daytona-runner:stability-132899b
+LABEL org.opencontainers.image.revision="e7a64026f6cbbd1e14eba9fe38bde8e3cf940673"       io.deepdiver.base.image-id="sha256:210536331a461cb811494f453d6a8d12a785d1df957a96d965c96266b006d9d2"       io.deepdiver.runner.binary-sha256="97a77dc751dcbc211478fadeb02baec1260282fe8cf288f0c3766fc456a0cfc7"
+COPY --chmod=0755 daytona-runner /usr/local/bin/daytona-runner

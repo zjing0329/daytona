@@ -1,0 +1,8 @@
+FROM daytonaio/daytona-api@sha256:8de6315a378430a58a44ce6c20b41050c2f602446e75f3ff559edbaa0b3758a7
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.revision=$SOURCE_REVISION       org.opencontainers.image.version="v0.187.0-dsec"       org.opencontainers.image.base.digest="sha256:8de6315a378430a58a44ce6c20b41050c2f602446e75f3ff559edbaa0b3758a7"
+COPY dist/apps/api/main.js dist/apps/api/main.js.map dist/apps/api/3rdpartylicenses.txt /daytona/dist/apps/api/
+COPY apps/api/src/sandbox/controllers/job.controller.ts /daytona/apps/api/src/sandbox/controllers/job.controller.ts
+COPY apps/api/src/sandbox/services/job.service.ts /daytona/apps/api/src/sandbox/services/job.service.ts
+COPY apps/api/src/sandbox/services/job-admission.ts /daytona/apps/api/src/sandbox/services/job-admission.ts
+ENV VERSION=v0.187.0-dsec

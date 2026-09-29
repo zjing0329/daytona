@@ -4,6 +4,7 @@
  */
 
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { claimPendingJobs, renewRecoveryJob, failStaleJob } from './job-admission'
 import { JobConflictError } from '../errors/job-conflict.error'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository, LessThan, In, EntityManager } from 'typeorm'
@@ -433,11 +434,14 @@ export class JobService {
 
         for (const job of staleJobs) {
           try {
-            await this.updateJobStatus(
-              job.id,
-              JobStatus.FAILED,
+            const failed = await failStaleJob(
+              this.jobRepository, job, threshold,
               `Job timed out - no update received for ${timeoutMinutes} minutes`,
             )
+            if (!failed) continue
+            this.jobStateHandlerService.handleJobCompletion(failed).catch((error) => {
+              this.logger.error(`Error handling stale completion for job ${job.id}:`, error)
+            })
 
             this.logger.warn(
               `Marked job ${job.id} (type: ${job.type}, resource: ${job.resourceType} ${job.resourceId}) as failed due to timeout`,
@@ -456,47 +460,17 @@ export class JobService {
    * Atomically claim pending jobs by updating their status to IN_PROGRESS
    * This prevents duplicate processing of the same job
    */
-  private async claimPendingJobs(runnerId: string, limit: number): Promise<JobDto[]> {
-    // Find pending jobs
-    const jobs = await this.jobRepository.find({
-      where: {
-        runnerId,
-        status: JobStatus.PENDING,
-      },
-      order: {
-        createdAt: 'ASC',
-      },
-      take: limit,
-    })
+  async renewRecoveryJob(runnerId: string, jobId: string): Promise<JobDto | null> {
+    const job = await renewRecoveryJob(this.jobRepository, runnerId, jobId)
+    return job ? new JobDto(job) : null
+  }
 
-    if (jobs.length === 0) {
-      return []
-    }
+  async claimAdmittedJobs(runnerId: string, jobClass: 'heavy' | 'cleanup', limit: number): Promise<JobDto[]> {
+    return this.claimPendingJobs(runnerId, limit, jobClass)
+  }
 
-    // Update jobs to IN_PROGRESS
-    const now = new Date()
-    const claimedJobs: JobDto[] = []
-
-    for (const job of jobs) {
-      try {
-        job.status = JobStatus.IN_PROGRESS
-        job.startedAt = now
-        job.updatedAt = now
-
-        // save() with @VersionColumn will automatically check version and throw OptimisticLockVersionMismatchError if changed
-        const savedJob = await this.jobRepository.save(job)
-
-        claimedJobs.push(new JobDto(savedJob))
-      } catch (error) {
-        // If optimistic lock fails, job was already claimed by another runner - skip it
-        this.logger.debug(`Job ${job.id} already claimed by another runner (version mismatch)`)
-      }
-    }
-
-    if (claimedJobs.length > 0) {
-      this.logger.debug(`Claimed ${claimedJobs.length} existing pending jobs for runner ${runnerId}`)
-    }
-
-    return claimedJobs
+  private async claimPendingJobs(runnerId: string, limit: number, jobClass?: 'heavy' | 'cleanup'): Promise<JobDto[]> {
+    const jobs = await claimPendingJobs(this.jobRepository, runnerId, limit, jobClass)
+    return jobs.map((job) => new JobDto(job))
   }
 }

@@ -1,0 +1,4 @@
+services:
+  api:
+    environment:
+      MAX_CONCURRENT_BACKUPS_PER_RUNNER: "1"

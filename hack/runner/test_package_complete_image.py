@@ -36,7 +36,8 @@ class PackagingTests(unittest.TestCase):
             path.write_text("fixture")
         inputs = receipt.input_hashes(self.root)
         value = dict(complete=True, source_revision="a" * 40, inputs=inputs,
-            input_fingerprint=receipt.fingerprint(inputs), outputs=m.verify_assets(self.root))
+            input_fingerprint=receipt.fingerprint(inputs), outputs=m.verify_assets(self.root),
+            workspace_checksum_sha256=receipt.sha(self.root / "go.work.sum"))
         (self.root / "dist/build-receipt.json").write_text(json.dumps(value))
         return value
 
@@ -70,6 +71,21 @@ class PackagingTests(unittest.TestCase):
     def test_wrong_revision_rejected_before_docker(self):
         with self.assertRaisesRegex(ValueError, "revision"):
             m.verify_source(self.root, self.root, "not-a-commit")
+
+    def test_generated_workspace_sum_recorded_separately(self):
+        value = self.receipt_fixture()
+        (self.root / "go.work.sum").write_text("generated checksum cache")
+        self.assertEqual(value["inputs"], receipt.input_hashes(self.root))
+        with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+            receipt.validate(self.root, "a" * 40, m.verify_assets(self.root))
+        value["workspace_checksum_sha256"] = receipt.sha(self.root / "go.work.sum")
+        (self.root / "dist/build-receipt.json").write_text(json.dumps(value))
+        receipt.validate(self.root, "a" * 40, m.verify_assets(self.root))
+
+    def test_workspace_without_optional_sum(self):
+        self.receipt_fixture()
+        (self.root / "go.work.sum").unlink()
+        self.assertNotIn("go.work.sum", receipt.input_hashes(self.root))
 
     def test_matching_receipt(self):
         value = self.receipt_fixture()

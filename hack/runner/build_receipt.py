@@ -26,7 +26,9 @@ def sha(path):
 
 
 def input_hashes(root):
-    names = {"go.work", "go.work.sum", *RECIPES}
+    names = {"go.work", *RECIPES}
+    # go.work.sum is a generated workspace checksum cache in this repository.
+    # Record it separately after build; dependency versions stay in module manifests.
     for directory in BUILD_ROOTS:
         for path in (root / directory).rglob("*"):
             if path.is_file() and "__pycache__" not in path.parts:
@@ -70,6 +72,8 @@ def finish(root, revision, version):
     if receipt["source_revision"] != revision or receipt["version"] != version or receipt["inputs"] != input_hashes(root):
         raise ValueError("Build inputs changed while compiling")
     receipt["outputs"] = {name: sha(root / name) for name in ASSETS}
+    checksum = root / "go.work.sum"
+    receipt["workspace_checksum_sha256"] = sha(checksum) if checksum.is_file() else None
     receipt["complete"] = True
     (root / "dist/build-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
 
@@ -81,6 +85,9 @@ def validate(root, revision, assets):
         raise ValueError("Receipt revision or completion mismatch")
     if receipt.get("inputs") != inputs or receipt.get("input_fingerprint") != fingerprint(inputs):
         raise ValueError("Receipt build inputs mismatch")
+    checksum = root / "go.work.sum"
+    if receipt.get("workspace_checksum_sha256") != (sha(checksum) if checksum.is_file() else None):
+        raise ValueError("Generated workspace checksum mismatch")
     if receipt.get("outputs") != assets:
         raise ValueError("Receipt build outputs mismatch")
     return receipt

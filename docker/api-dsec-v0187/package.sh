@@ -1,5 +1,10 @@
 #!/bin/sh
 set -eu
+# This overlay preserves the v0.187 runtime closure. Full upgrades use api-dsec-v0190.
+if ! git diff --quiet 8a446cb96331737e5a2118cbcaa0604d95c07f71 -- package.json yarn.lock apps/api/src/migrations; then
+    echo "Refusing the v0.187 overlay recipe on a changed dependency/schema baseline. Use docker/api-dsec-v0190." >&2
+    exit 1
+fi
 source_dir=$(git rev-parse --show-toplevel)
 build_dir=${DSEC_API_BUILD_DIR:?Set DSEC_API_BUILD_DIR to the completed build output}
 context_dir="$build_dir/runtime-context"

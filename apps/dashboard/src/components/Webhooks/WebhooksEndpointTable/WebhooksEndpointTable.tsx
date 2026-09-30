@@ -31,7 +31,7 @@ import {
 import { DEFAULT_PAGE_SIZE } from '@/constants/Pagination'
 import { RoutePath } from '@/enums/RoutePath'
 import { cn } from '@/lib/utils'
-import { getColumnSizeStyles } from '@/lib/utils/table'
+import { DEFAULT_TABLE_COLUMN, getColumnSizeStyles, getTableSizeStyles } from '@/lib/utils/table'
 import {
   flexRender,
   getCoreRowModel,
@@ -81,10 +81,11 @@ export function WebhooksEndpointTable({
       setDisableEndpoint(null)
     }
   }
-
   const table = useReactTable({
+    columnResizeMode: 'onEnd',
     data,
     columns,
+    defaultColumn: DEFAULT_TABLE_COLUMN,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -184,7 +185,7 @@ export function WebhooksEndpointTable({
           ) : null
         }
       >
-        <Table className="table-fixed" style={{ minWidth: table.getTotalSize() }}>
+        <Table className="table-fixed" style={getTableSizeStyles(table)}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -193,6 +194,7 @@ export function WebhooksEndpointTable({
                     <TableHead
                       className="px-2"
                       key={header.id}
+                      header={header}
                       style={getColumnSizeStyles(header.column)}
                       sticky={header.column.getIsPinned()}
                     >
@@ -225,7 +227,11 @@ export function WebhooksEndpointTable({
                   <TableRow
                     key={row.id}
                     data-state={row.getIsSelected() && 'selected'}
-                    className={`${isLoading ? 'opacity-50 pointer-events-none' : 'cursor-pointer hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none'}`}
+                    className={cn({
+                      'opacity-50 pointer-events-none': isLoading,
+                      'cursor-pointer hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-hidden':
+                        !isLoading,
+                    })}
                     tabIndex={isLoading ? undefined : 0}
                     role={isLoading ? undefined : 'link'}
                     onClick={() => {

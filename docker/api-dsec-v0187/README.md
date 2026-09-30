@@ -1,3 +1,5 @@
+> Historical v0.187 image-overlay recipe. The active source now targets v0.190; use ../api-dsec-v0190/ for full API builds and schema-aware rollout. Build/package scripts refuse changed dependency or migration baselines. The maintenance helpers in this directory remain reusable.
+
 # Production v0.187.0 admission backport
 
 The deployed API base is daytonaio/daytona-api@sha256:8de6315a378430a58a44ce6c20b41050c2f602446e75f3ff559edbaa0b3758a7.

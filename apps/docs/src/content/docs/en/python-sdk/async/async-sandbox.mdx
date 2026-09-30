@@ -53,6 +53,8 @@ Represents a Daytona Sandbox.
   (not returned by list results; call `refresh_data()` on each item to populate).
 - `network_allow_list` _str | None_ - Comma-separated list of allowed CIDR network addresses for
   the Sandbox (not returned by list results; call `refresh_data()` on each item to populate).
+- `domain_allow_list` _str | None_ - Comma-separated list of allowed domains for
+  the Sandbox (not returned by list results; call `refresh_data()` on each item to populate).
 - `toolbox_proxy_url` _str_ - The toolbox proxy URL for the Sandbox.
 
 ##### env: `dict[str, str] | None`
@@ -452,7 +454,8 @@ sandbox.set_auto_delete_interval(-1)
 async def update_network_settings(
         *,
         network_block_all: bool | None = None,
-        network_allow_list: str | None = None) -> None
+        network_allow_list: str | None = None,
+        domain_allow_list: str | None = None) -> None
 ```
 
 Updates outbound network policy on the runner (block all, restore access, or CIDR allow list).
@@ -462,6 +465,7 @@ Updates outbound network policy on the runner (block all, restore access, or CID
 - `network_block_all` - When ``True``, blocks all outbound traffic. When ``False``, restores general
   outbound access (and clears a stored allow list).
 - `network_allow_list` - Comma-separated IPv4 CIDRs to allow; implies not blocking all.
+- `domain_allow_list` - Comma-separated domains to allow; implies not blocking all.
   
 
 **Raises**:
@@ -678,6 +682,30 @@ It is useful for keeping long-running sessions alive while there is still user a
 ```python
 await sandbox.refresh_activity()
 ```
+
+#### AsyncSandbox.pause
+
+```python
+@intercept_errors(message_prefix="Failed to pause sandbox")
+@with_instrumentation()
+async def pause(timeout: float = 60) -> None
+```
+
+Pauses the Sandbox, freezing all running processes.
+
+The Sandbox will enter a 'pausing' state and transition to 'paused' when
+complete. While paused, the Sandbox retains its state in memory but does
+not consume CPU cycles.
+
+**Arguments**:
+
+- `timeout` - Maximum time to wait in seconds. 0 means no timeout.
+  Defaults to 60-second timeout.
+
+
+**Raises**:
+
+- `DaytonaError` - If timeout is negative or the operation fails/times out.
 
 
 ## Resources

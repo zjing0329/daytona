@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -21,7 +21,10 @@ var _ MappedNullable = &AccessibilityTreeResponse{}
 type AccessibilityTreeResponse struct {
 	Root *ComputerUseAccessibilityNode `json:"root,omitempty"`
 	Truncated *bool `json:"truncated,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
+
+type _AccessibilityTreeResponse AccessibilityTreeResponse
 
 // NewAccessibilityTreeResponse instantiates a new AccessibilityTreeResponse object
 // This constructor will assign default values to properties that have it defined,
@@ -120,7 +123,34 @@ func (o AccessibilityTreeResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Truncated) {
 		toSerialize["truncated"] = o.Truncated
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
+}
+
+func (o *AccessibilityTreeResponse) UnmarshalJSON(data []byte) (err error) {
+	varAccessibilityTreeResponse := _AccessibilityTreeResponse{}
+
+	err = json.Unmarshal(data, &varAccessibilityTreeResponse)
+
+	if err != nil {
+		return err
+	}
+
+	*o = AccessibilityTreeResponse(varAccessibilityTreeResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "root")
+		delete(additionalProperties, "truncated")
+		o.AdditionalProperties = additionalProperties
+	}
+
+	return err
 }
 
 type NullableAccessibilityTreeResponse struct {

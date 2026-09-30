@@ -124,7 +124,7 @@ func (p *Proxy) AuthCallback(ctx *gin.Context) {
 		return
 	}
 
-	ctx.SetCookie(SANDBOX_AUTH_COOKIE_NAME+sandboxId, encoded, 3600, "/", cookieDomain, p.config.EnableTLS, true)
+	ctx.SetCookie(SANDBOX_AUTH_COOKIE_NAME+sandboxId, encoded, SANDBOX_AUTH_COOKIE_MAX_AGE_SECONDS, "/", cookieDomain, p.config.EnableTLS, true)
 
 	// Redirect back to the original URL
 	ctx.Redirect(http.StatusFound, returnTo)
@@ -217,6 +217,7 @@ func (p *Proxy) getUserApiClient(ctx context.Context, authToken string) *apiclie
 			URL: p.config.DaytonaApiUrl,
 		},
 	}
+	clientConfig.HTTPClient = p.userAPIHTTPClient
 	clientConfig.AddDefaultHeader("Authorization", "Bearer "+authToken)
 	if ginCtx, ok := ctx.(*gin.Context); ok {
 		clientConfig.AddDefaultHeader("X-Forwarded-For", ginCtx.ClientIP())

@@ -19,7 +19,7 @@ export function parseAdmissionRequest(jobClass: string, limit: string): { jobCla
 export async function claimPendingJobs(
   repository: Repository<Job>, runnerId: string, limit: number, jobClass?: JobClass,
 ): Promise<Job[]> {
-  const cleanupTypes = [JobType.STOP_SANDBOX, JobType.DESTROY_SANDBOX, JobType.REMOVE_SNAPSHOT]
+  const cleanupTypes = [JobType.STOP_SANDBOX, JobType.DESTROY_SANDBOX, JobType.REMOVE_SNAPSHOT, JobType.PAUSE_SANDBOX]
   const typeFilter = jobClass === 'cleanup' ? In(cleanupTypes) : jobClass === 'heavy' ? Not(In(cleanupTypes)) : undefined
   const jobs = await repository.find({
     where: { runnerId, status: JobStatus.PENDING, ...(typeFilter ? { type: typeFilter } : {}) },

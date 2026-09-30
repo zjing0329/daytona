@@ -83,6 +83,8 @@ import { WithInstrumentation } from './utils/otel.decorator'
  * (not returned by list results; call `refreshData()` on each item to populate)
  * @property {string} [networkAllowList] - Comma-separated list of allowed CIDR network addresses for the Sandbox
  * (not returned by list results; call `refreshData()` on each item to populate)
+ * @property {string} [domainAllowList] - Comma-separated list of allowed domains for the Sandbox
+ * (not returned by list results; call `refreshData()` on each item to populate)
  * @property {string} [linkedSandboxId] - ID of the Sandbox this Sandbox is linked to. When set, the Sandbox is co-located on the same runner as the linked Sandbox.
  * (not returned by list results; call `refreshData()` on each item to populate)
  *
@@ -123,6 +125,7 @@ export class Sandbox {
   public lastActivityAt?: string
   public networkBlockAll?: boolean
   public networkAllowList?: string
+  public domainAllowList?: string
   public linkedSandboxId?: string
   public toolboxProxyUrl: string
 
@@ -445,6 +448,65 @@ export class Sandbox {
   }
 
   /**
+   * Pauses the Sandbox, freezing all running processes.
+   *
+   * The Sandbox will enter a 'pausing' state and transition to 'paused' when
+   * complete. While paused, the Sandbox retains its state in memory but does
+   * not consume CPU cycles.
+   *
+   * @param {number} [timeout] - Maximum time to wait in seconds. 0 means no timeout.
+   *                            Defaults to 60-second timeout.
+   * @returns {Promise<void>}
+   * @throws {DaytonaValidationError} - If timeout is a negative number
+   * @throws {DaytonaError} - If the pause operation fails or times out
+   *
+   * @example
+   * const sandbox = await daytona.get('my-sandbox');
+   * await sandbox.pause();
+   * console.log('Sandbox paused successfully');
+   */
+  @WithInstrumentation()
+  public async pause(timeout = 60): Promise<void> {
+    if (timeout < 0) {
+      throw new DaytonaValidationError('Timeout must be a non-negative number')
+    }
+
+    const startTime = Date.now()
+    await this.sandboxApi.pauseSandbox(this.id, undefined, {
+      timeout: timeout * 1000,
+    })
+
+    await this.refreshData()
+
+    const timeElapsed = Date.now() - startTime
+    const remainingTimeout = timeout ? Math.max(0.001, timeout - timeElapsed / 1000) : timeout
+    await this.waitForPauseComplete(remainingTimeout)
+  }
+
+  private async waitForPauseComplete(timeout: number) {
+    let checkInterval = 100
+    const startTime = Date.now()
+
+    while (this.state === SandboxState.PAUSING) {
+      await this.refreshData()
+
+      // @ts-expect-error this.refreshData() can modify this.state so this check is fine
+      if (this.state === SandboxState.ERROR) {
+        throw new DaytonaError(
+          `Sandbox ${this.id} pause failed with state: ${this.state}, error reason: ${this.errorReason}`,
+        )
+      }
+
+      if (timeout > 0 && (Date.now() - startTime) / 1000 >= timeout) {
+        throw new DaytonaError(`Sandbox ${this.id} failed to pause within ${timeout} seconds`)
+      }
+
+      await new Promise((resolve) => globalThis.setTimeout(resolve, checkInterval))
+      checkInterval = Math.min(checkInterval * 1.5, 1000)
+    }
+  }
+
+  /**
    * Deletes the Sandbox.
    * @returns {Promise<void>}
    */
@@ -657,10 +719,11 @@ export class Sandbox {
    * Updates outbound network policy for this sandbox on the runner (for example block all traffic,
    * restore general internet access, or apply a CIDR allow list) without stopping the sandbox.
    *
-   * This maps to the same mechanism as creating a sandbox with `networkBlockAll` / `networkAllowList`:
-   * the runner applies iptables rules to the sandbox container.
+   * This maps to the same mechanism as creating a sandbox with `networkBlockAll` / `networkAllowList` /
+   * `domainAllowList`: the runner applies iptables rules to the sandbox container.
    *
-   * @param {UpdateSandboxNetworkSettings} settings - At least one of `networkBlockAll` or `networkAllowList` must be set.
+   * @param {UpdateSandboxNetworkSettings} settings - At least one of `networkBlockAll`, `networkAllowList` or
+   *   `domainAllowList` must be set.
    *   Set `networkBlockAll` to `false` to restore outbound access after a block (and clear a stored allow list).
    *
    * @example
@@ -668,11 +731,19 @@ export class Sandbox {
    * await sandbox.updateNetworkSettings({ networkBlockAll: true });
    * // Resume internet
    * await sandbox.updateNetworkSettings({ networkBlockAll: false });
+   * // Allow only specific domains
+   * await sandbox.updateNetworkSettings({ domainAllowList: 'example.com,*.daytona.io' });
    */
   @WithInstrumentation()
   public async updateNetworkSettings(settings: UpdateSandboxNetworkSettings): Promise<void> {
-    if (settings.networkBlockAll === undefined && settings.networkAllowList === undefined) {
-      throw new DaytonaValidationError('At least one of networkBlockAll or networkAllowList must be set')
+    if (
+      settings.networkBlockAll === undefined &&
+      settings.networkAllowList === undefined &&
+      settings.domainAllowList === undefined
+    ) {
+      throw new DaytonaValidationError(
+        'At least one of networkBlockAll, networkAllowList or domainAllowList must be set',
+      )
     }
     const response = await this.sandboxApi.updateNetworkSettings(this.id, settings)
     this.processSandboxDto(response.data)
@@ -887,6 +958,7 @@ export class Sandbox {
       this.env = sandboxDto.env
       this.networkBlockAll = sandboxDto.networkBlockAll
       this.networkAllowList = sandboxDto.networkAllowList
+      this.domainAllowList = sandboxDto.domainAllowList
       this.linkedSandboxId = sandboxDto.linkedSandboxId
       this.volumes = sandboxDto.volumes
       this.buildInfo = sandboxDto.buildInfo

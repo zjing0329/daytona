@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -22,7 +22,10 @@ type ScreenshotResponse struct {
 	CursorPosition *Position `json:"cursorPosition,omitempty"`
 	Screenshot *string `json:"screenshot,omitempty"`
 	SizeBytes *int32 `json:"sizeBytes,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
+
+type _ScreenshotResponse ScreenshotResponse
 
 // NewScreenshotResponse instantiates a new ScreenshotResponse object
 // This constructor will assign default values to properties that have it defined,
@@ -156,7 +159,35 @@ func (o ScreenshotResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.SizeBytes) {
 		toSerialize["sizeBytes"] = o.SizeBytes
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
+}
+
+func (o *ScreenshotResponse) UnmarshalJSON(data []byte) (err error) {
+	varScreenshotResponse := _ScreenshotResponse{}
+
+	err = json.Unmarshal(data, &varScreenshotResponse)
+
+	if err != nil {
+		return err
+	}
+
+	*o = ScreenshotResponse(varScreenshotResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "cursorPosition")
+		delete(additionalProperties, "screenshot")
+		delete(additionalProperties, "sizeBytes")
+		o.AdditionalProperties = additionalProperties
+	}
+
+	return err
 }
 
 type NullableScreenshotResponse struct {

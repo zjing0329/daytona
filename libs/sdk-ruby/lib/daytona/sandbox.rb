@@ -41,6 +41,10 @@ module Daytona
     #   Not returned by list results; call #refresh on each item to populate.
     attr_reader :network_allow_list
 
+    # @return [String, nil] Comma-separated list of allowed domains for the sandbox.
+    #   Not returned by list results; call #refresh on each item to populate.
+    attr_reader :domain_allow_list
+
     # @return [String] The target environment for the sandbox
     attr_reader :target
 
@@ -216,21 +220,24 @@ module Daytona
     #
     # @param network_block_all [Boolean, nil]
     # @param network_allow_list [String, nil]
+    # @param domain_allow_list [String, nil]
     # @return [void]
     # @raise [Daytona::Sdk::Error]
-    def update_network_settings(network_block_all: nil, network_allow_list: nil)
-      if network_block_all.nil? && network_allow_list.nil?
+    def update_network_settings(network_block_all: nil, network_allow_list: nil, domain_allow_list: nil)
+      if network_block_all.nil? && network_allow_list.nil? && domain_allow_list.nil?
         raise Sdk::Error,
-              'At least one of network_block_all or network_allow_list must be provided'
+              'At least one of network_block_all, network_allow_list or domain_allow_list must be provided'
       end
 
       body = DaytonaApiClient::UpdateSandboxNetworkSettings.new(
         network_block_all:,
-        network_allow_list:
+        network_allow_list:,
+        domain_allow_list:
       )
       data = sandbox_api.update_network_settings(id, body)
       @network_block_all = data.network_block_all
       @network_allow_list = data.network_allow_list
+      @domain_allow_list = data.domain_allow_list
     end
 
     # Sets the auto-stop interval for the Sandbox.
@@ -546,6 +553,22 @@ module Daytona
       ) { wait_for_snapshot_complete }
     end
 
+    # Pauses the Sandbox, freezing all running processes.
+    # The Sandbox will enter a 'pausing' state and transition to 'paused' when complete.
+    #
+    # @param timeout [Numeric] Maximum wait time in seconds (defaults to 60 s)
+    # @return [void]
+    def pause(timeout: DEFAULT_TIMEOUT)
+      with_timeout(
+        timeout:,
+        message: "Sandbox #{id} failed to pause within the #{timeout} seconds timeout period",
+        setup: proc {
+          sandbox_api.pause_sandbox(id)
+          refresh
+        }
+      ) { wait_for_pause_complete }
+    end
+
     instrument :archive, :auto_archive_interval=, :auto_delete_interval=, :auto_stop_interval=,
                :update_network_settings,
                :create_ssh_access, :delete, :get_user_home_dir, :get_work_dir, :labels=,
@@ -553,7 +576,7 @@ module Daytona
                :refresh, :refresh_activity, :revoke_ssh_access, :start, :recover, :stop,
                :create_lsp_server, :validate_ssh_access, :wait_for_sandbox_start,
                :wait_for_sandbox_stop, :resize, :wait_for_resize_complete,
-               :experimental_fork, :experimental_create_snapshot,
+               :experimental_fork, :experimental_create_snapshot, :pause,
                component: 'Sandbox'
 
     private
@@ -613,6 +636,7 @@ module Daytona
       @env = sandbox_dto.env
       @network_block_all = sandbox_dto.network_block_all
       @network_allow_list = sandbox_dto.network_allow_list
+      @domain_allow_list = sandbox_dto.domain_allow_list
       @volumes = sandbox_dto.volumes
       @build_info = sandbox_dto.build_info
       @backup_created_at = sandbox_dto.backup_created_at
@@ -696,6 +720,26 @@ module Daytona
         end
 
         break if state != DaytonaApiClient::SandboxState::SNAPSHOTTING
+
+        sleep(interval)
+        if ::Process.clock_gettime(::Process::CLOCK_MONOTONIC) - start_time > 5
+          interval = [interval * BACKOFF_MULTIPLIER, MAX_POLL_INTERVAL].min
+        end
+      end
+    end
+
+    def wait_for_pause_complete
+      interval = INITIAL_POLL_INTERVAL
+      start_time = ::Process.clock_gettime(::Process::CLOCK_MONOTONIC)
+      while state == DaytonaApiClient::SandboxState::PAUSING
+        refresh
+
+        if [DaytonaApiClient::SandboxState::ERROR, DaytonaApiClient::SandboxState::BUILD_FAILED].include?(state)
+          raise Sdk::Error,
+                "Sandbox #{id} pause failed with state: #{state}, error reason: #{error_reason}"
+        end
+
+        break if state != DaytonaApiClient::SandboxState::PAUSING
 
         sleep(interval)
         if ::Process.clock_gettime(::Process::CLOCK_MONOTONIC) - start_time > 5

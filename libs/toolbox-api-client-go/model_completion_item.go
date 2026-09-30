@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -12,7 +12,6 @@ package toolbox
 
 import (
 	"encoding/json"
-	"bytes"
 	"fmt"
 )
 
@@ -28,6 +27,7 @@ type CompletionItem struct {
 	Kind *int32 `json:"kind,omitempty"`
 	Label string `json:"label"`
 	SortText *string `json:"sortText,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _CompletionItem CompletionItem
@@ -295,6 +295,11 @@ func (o CompletionItem) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.SortText) {
 		toSerialize["sortText"] = o.SortText
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -322,15 +327,26 @@ func (o *CompletionItem) UnmarshalJSON(data []byte) (err error) {
 
 	varCompletionItem := _CompletionItem{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varCompletionItem)
+	err = json.Unmarshal(data, &varCompletionItem)
 
 	if err != nil {
 		return err
 	}
 
 	*o = CompletionItem(varCompletionItem)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "detail")
+		delete(additionalProperties, "documentation")
+		delete(additionalProperties, "filterText")
+		delete(additionalProperties, "insertText")
+		delete(additionalProperties, "kind")
+		delete(additionalProperties, "label")
+		delete(additionalProperties, "sortText")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

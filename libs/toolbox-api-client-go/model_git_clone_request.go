@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -12,7 +12,6 @@ package toolbox
 
 import (
 	"encoding/json"
-	"bytes"
 	"fmt"
 )
 
@@ -29,6 +28,7 @@ type GitCloneRequest struct {
 	Path string `json:"path"`
 	Url string `json:"url"`
 	Username *string `json:"username,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _GitCloneRequest GitCloneRequest
@@ -287,6 +287,11 @@ func (o GitCloneRequest) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Username) {
 		toSerialize["username"] = o.Username
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -315,15 +320,26 @@ func (o *GitCloneRequest) UnmarshalJSON(data []byte) (err error) {
 
 	varGitCloneRequest := _GitCloneRequest{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varGitCloneRequest)
+	err = json.Unmarshal(data, &varGitCloneRequest)
 
 	if err != nil {
 		return err
 	}
 
 	*o = GitCloneRequest(varGitCloneRequest)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "branch")
+		delete(additionalProperties, "commit_id")
+		delete(additionalProperties, "insecure_skip_tls")
+		delete(additionalProperties, "password")
+		delete(additionalProperties, "path")
+		delete(additionalProperties, "url")
+		delete(additionalProperties, "username")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

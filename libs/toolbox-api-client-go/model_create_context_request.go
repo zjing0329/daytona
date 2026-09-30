@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -21,7 +21,10 @@ var _ MappedNullable = &CreateContextRequest{}
 type CreateContextRequest struct {
 	Cwd *string `json:"cwd,omitempty"`
 	Language *string `json:"language,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
+
+type _CreateContextRequest CreateContextRequest
 
 // NewCreateContextRequest instantiates a new CreateContextRequest object
 // This constructor will assign default values to properties that have it defined,
@@ -120,7 +123,34 @@ func (o CreateContextRequest) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Language) {
 		toSerialize["language"] = o.Language
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
+}
+
+func (o *CreateContextRequest) UnmarshalJSON(data []byte) (err error) {
+	varCreateContextRequest := _CreateContextRequest{}
+
+	err = json.Unmarshal(data, &varCreateContextRequest)
+
+	if err != nil {
+		return err
+	}
+
+	*o = CreateContextRequest(varCreateContextRequest)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "cwd")
+		delete(additionalProperties, "language")
+		o.AdditionalProperties = additionalProperties
+	}
+
+	return err
 }
 
 type NullableCreateContextRequest struct {

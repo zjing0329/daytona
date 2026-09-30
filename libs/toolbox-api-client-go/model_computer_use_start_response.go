@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -21,7 +21,10 @@ var _ MappedNullable = &ComputerUseStartResponse{}
 type ComputerUseStartResponse struct {
 	Message *string `json:"message,omitempty"`
 	Status *map[string]ProcessStatus `json:"status,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
+
+type _ComputerUseStartResponse ComputerUseStartResponse
 
 // NewComputerUseStartResponse instantiates a new ComputerUseStartResponse object
 // This constructor will assign default values to properties that have it defined,
@@ -120,7 +123,34 @@ func (o ComputerUseStartResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
+}
+
+func (o *ComputerUseStartResponse) UnmarshalJSON(data []byte) (err error) {
+	varComputerUseStartResponse := _ComputerUseStartResponse{}
+
+	err = json.Unmarshal(data, &varComputerUseStartResponse)
+
+	if err != nil {
+		return err
+	}
+
+	*o = ComputerUseStartResponse(varComputerUseStartResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "message")
+		delete(additionalProperties, "status")
+		o.AdditionalProperties = additionalProperties
+	}
+
+	return err
 }
 
 type NullableComputerUseStartResponse struct {

@@ -223,6 +223,7 @@ export class RunnerAdapterV0 implements RunnerAdapter {
       })),
       networkBlockAll: sandbox.networkBlockAll,
       networkAllowList: sandbox.networkAllowList,
+      domainAllowList: sandbox.domainAllowList,
       metadata: metadata,
       authToken: sandbox.authToken,
       otelEndpoint,
@@ -411,11 +412,13 @@ export class RunnerAdapterV0 implements RunnerAdapter {
     networkBlockAll?: boolean,
     networkAllowList?: string,
     networkLimitEgress?: boolean,
+    domainAllowList?: string,
   ): Promise<void> {
     const updateNetworkSettingsDto: UpdateNetworkSettingsDTO = {
       networkBlockAll: networkBlockAll,
       networkAllowList: networkAllowList,
       networkLimitEgress: networkLimitEgress,
+      domainAllowList: domainAllowList,
     }
 
     await this.sandboxApiClient.updateNetworkSettings(sandboxId, updateNetworkSettingsDto)
@@ -423,6 +426,10 @@ export class RunnerAdapterV0 implements RunnerAdapter {
 
   async forkSandbox(_sourceSandboxId: string, _newSandboxId: string): Promise<void> {
     throw new Error('forkSandbox is not supported for V0 runners')
+  }
+
+  async pauseSandbox(_sandboxId: string): Promise<void> {
+    throw new Error('pauseSandbox is not supported for V0 runners')
   }
 
   async createSnapshotFromSandbox(

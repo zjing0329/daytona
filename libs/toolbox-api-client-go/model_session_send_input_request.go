@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -12,7 +12,6 @@ package toolbox
 
 import (
 	"encoding/json"
-	"bytes"
 	"fmt"
 )
 
@@ -22,6 +21,7 @@ var _ MappedNullable = &SessionSendInputRequest{}
 // SessionSendInputRequest struct for SessionSendInputRequest
 type SessionSendInputRequest struct {
 	Data string `json:"data"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _SessionSendInputRequest SessionSendInputRequest
@@ -79,6 +79,11 @@ func (o SessionSendInputRequest) MarshalJSON() ([]byte, error) {
 func (o SessionSendInputRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["data"] = o.Data
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -106,15 +111,20 @@ func (o *SessionSendInputRequest) UnmarshalJSON(data []byte) (err error) {
 
 	varSessionSendInputRequest := _SessionSendInputRequest{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varSessionSendInputRequest)
+	err = json.Unmarshal(data, &varSessionSendInputRequest)
 
 	if err != nil {
 		return err
 	}
 
 	*o = SessionSendInputRequest(varSessionSendInputRequest)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "data")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

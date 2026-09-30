@@ -14,7 +14,8 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { useRegions } from '@/hooks/useRegions'
+import { useRegionLookup } from '@/hooks/queries/useRegionsQuery'
+import { useSelectedOrganization } from '@/hooks/useSelectedOrganization'
 import { formatMoney } from '@/lib/utils'
 import { ModelsUsageChartPoint } from '@daytona/analytics-api-client'
 import type { RegionUsageOverview } from '@daytona/api-client'
@@ -35,9 +36,9 @@ type ChartMode = 'resources' | 'cost'
 type ResourceFilter = 'all' | 'cpu' | 'ram' | 'disk'
 
 const RESOURCE_COLORS = {
-  cpu: 'hsl(var(--chart-1))',
-  ram: 'hsl(var(--chart-2))',
-  disk: 'hsl(var(--chart-3))',
+  cpu: 'var(--chart-1)',
+  ram: 'var(--chart-2)',
+  disk: 'var(--chart-3)',
 }
 
 const LIMIT_COLOR = '#ef4444'
@@ -125,7 +126,8 @@ export function UsageTimelineChart({
   onRegionChange,
   dateRange,
 }: UsageTimelineChartProps) {
-  const { getRegionName } = useRegions()
+  const { selectedOrganization } = useSelectedOrganization()
+  const { getRegionName } = useRegionLookup(selectedOrganization?.id)
 
   const [mode, setMode] = useState<ChartMode>('resources')
   const [resourceFilter, setResourceFilter] = useState<ResourceFilter>('all')

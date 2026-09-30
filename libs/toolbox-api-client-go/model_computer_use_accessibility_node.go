@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -27,7 +27,10 @@ type ComputerUseAccessibilityNode struct {
 	Name *string `json:"name,omitempty"`
 	Role *string `json:"role,omitempty"`
 	States []string `json:"states,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
+
+type _ComputerUseAccessibilityNode ComputerUseAccessibilityNode
 
 // NewComputerUseAccessibilityNode instantiates a new ComputerUseAccessibilityNode object
 // This constructor will assign default values to properties that have it defined,
@@ -336,7 +339,40 @@ func (o ComputerUseAccessibilityNode) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.States) {
 		toSerialize["states"] = o.States
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
+}
+
+func (o *ComputerUseAccessibilityNode) UnmarshalJSON(data []byte) (err error) {
+	varComputerUseAccessibilityNode := _ComputerUseAccessibilityNode{}
+
+	err = json.Unmarshal(data, &varComputerUseAccessibilityNode)
+
+	if err != nil {
+		return err
+	}
+
+	*o = ComputerUseAccessibilityNode(varComputerUseAccessibilityNode)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "actions")
+		delete(additionalProperties, "bounds")
+		delete(additionalProperties, "children")
+		delete(additionalProperties, "description")
+		delete(additionalProperties, "id")
+		delete(additionalProperties, "name")
+		delete(additionalProperties, "role")
+		delete(additionalProperties, "states")
+		o.AdditionalProperties = additionalProperties
+	}
+
+	return err
 }
 
 type NullableComputerUseAccessibilityNode struct {

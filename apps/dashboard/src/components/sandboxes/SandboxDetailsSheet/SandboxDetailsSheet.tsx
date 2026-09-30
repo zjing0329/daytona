@@ -39,6 +39,7 @@ export interface SandboxDetailsSheetProps {
   sandboxIsLoading: Record<string, boolean>
   handleStart: (id: string) => void
   handleStop: (id: string) => void
+  handlePause: (id: string) => void
   handleDelete: (id: string) => void
   handleArchive: (id: string) => void
   getRegionName: (regionId: string) => string | undefined
@@ -130,6 +131,7 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
   sandboxIsLoading,
   handleStart,
   handleStop,
+  handlePause,
   handleDelete,
   handleArchive,
   getRegionName,
@@ -292,7 +294,7 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
             event.preventDefault()
           }
         }}
-        className="p-0 flex flex-col gap-0 data-[state=closed]:slide-out-to-right-[400px] data-[state=closed]:duration-150 data-[state=open]:slide-in-from-right-[400px] ease-[cubic-bezier(0.22,1,0.36,1)] [&>button]:hidden"
+        className="p-0 flex flex-col gap-0 data-[state=closed]:slide-out-to-right-[400px] data-[state=closed]:duration-250 data-[state=open]:slide-in-from-right-[400px] ease-[cubic-bezier(0.22,1,0.36,1)] [&>button]:hidden"
       >
         <SheetHeader className="flex flex-row items-start justify-between p-4 px-5 space-y-0 border-b border-border">
           <div className="min-w-0">
@@ -333,6 +335,7 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
                 deletePermitted={deletePermitted}
                 handleStart={handleStart}
                 handleStop={handleStop}
+                handlePause={handlePause}
                 handleDelete={handleDelete}
                 handleArchive={handleArchive}
                 handleRecover={handleRecover}

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
+import { cn } from '@/lib/utils'
 import { SandboxClass, SandboxState } from '@daytona/api-client'
 import { Loader2, MoreHorizontal, Play, Square, Terminal, Wrench } from 'lucide-react'
 import { useMemo } from 'react'
@@ -29,6 +30,7 @@ export function SandboxTableActions({
   onVnc,
   onCreateSshAccess,
   onRevokeSshAccess,
+  onPause,
   onCreateSnapshot,
   onRecover,
   onScreenRecordings,
@@ -42,11 +44,17 @@ export function SandboxTableActions({
       ? 'Starting sandbox'
       : sandbox.state === SandboxState.STOPPING
         ? 'Stopping sandbox'
-        : sandbox.state === SandboxState.STARTED
-          ? 'Stop sandbox'
-          : sandbox.state === SandboxState.ERROR && sandbox.recoverable
-            ? 'Recover sandbox'
-            : 'Start sandbox'
+        : sandbox.state === SandboxState.PAUSING
+          ? 'Pausing sandbox'
+          : sandbox.state === SandboxState.RESUMING
+            ? 'Resuming sandbox'
+            : sandbox.state === SandboxState.STARTED
+              ? 'Stop sandbox'
+              : sandbox.state === SandboxState.PAUSED
+                ? 'Resume sandbox'
+                : sandbox.state === SandboxState.ERROR && sandbox.recoverable
+                  ? 'Recover sandbox'
+                  : 'Start sandbox'
 
   const menuItems = useMemo(() => {
     const items = []
@@ -59,13 +67,33 @@ export function SandboxTableActions({
           onClick: () => onStop(sandbox.id),
           disabled: isLoading,
         })
-      } else if (sandbox.state === SandboxState.STOPPED || sandbox.state === SandboxState.ARCHIVED) {
+        if (isVmSandbox) {
+          items.push({
+            key: 'pause',
+            label: 'Pause',
+            onClick: () => onPause(sandbox.id),
+            disabled: isLoading,
+          })
+        }
+      } else if (
+        sandbox.state === SandboxState.STOPPED ||
+        sandbox.state === SandboxState.ARCHIVED ||
+        sandbox.state === SandboxState.PAUSED
+      ) {
         items.push({
           key: 'start',
           label: 'Start',
           onClick: () => onStart(sandbox.id),
           disabled: isLoading,
         })
+        if (sandbox.state === SandboxState.PAUSED) {
+          items.push({
+            key: 'stop',
+            label: 'Stop',
+            onClick: () => onStop(sandbox.id),
+            disabled: isLoading,
+          })
+        }
       } else if (sandbox.state === SandboxState.ERROR && sandbox.recoverable) {
         items.push({
           key: 'recover',
@@ -170,6 +198,7 @@ export function SandboxTableActions({
     sandbox.recoverable,
     onStart,
     onStop,
+    onPause,
     onDelete,
     onArchive,
     onVnc,
@@ -214,7 +243,12 @@ export function SandboxTableActions({
           >
             {sandbox.state === SandboxState.STARTED ? (
               <Square className="w-4 h-4" />
-            ) : sandbox.state === SandboxState.STOPPING || sandbox.state === SandboxState.STARTING ? (
+            ) : sandbox.state === SandboxState.PAUSED ? (
+              <Play className="w-4 h-4" />
+            ) : sandbox.state === SandboxState.STOPPING ||
+              sandbox.state === SandboxState.STARTING ||
+              sandbox.state === SandboxState.PAUSING ||
+              sandbox.state === SandboxState.RESUMING ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : sandbox.state === SandboxState.ERROR && sandbox.recoverable ? (
               <Wrench className="w-4 h-4" />
@@ -257,7 +291,7 @@ export function SandboxTableActions({
                   e.stopPropagation()
                   item.onClick?.()
                 }}
-                className={`cursor-pointer ${item.className || ''}`}
+                className={cn('cursor-pointer', item.className)}
                 disabled={item.disabled}
               >
                 {item.label}

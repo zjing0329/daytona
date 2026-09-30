@@ -27,6 +27,9 @@ import (
 //   - CodeInterpreter: Python code execution
 //   - ComputerUse: Desktop automation (mouse, keyboard, screenshots)
 //
+// Language Server Protocol (LSP) servers are created on demand via
+// [Sandbox.CreateLspServer].
+//
 // Example:
 //
 //	// Create and use a sandbox
@@ -104,6 +107,10 @@ type Sandbox struct {
 	// Not populated by [Client.List]; call [Sandbox.RefreshData] on each item to populate.
 	NetworkAllowList *string
 
+	// DomainAllowList is a comma-separated list of allowed domains.
+	// Not populated by [Client.List]; call [Sandbox.RefreshData] on each item to populate.
+	DomainAllowList *string
+
 	FileSystem      *FileSystemService      // File system operations
 	Git             *GitService             // Git operations
 	Process         *ProcessService         // Process and PTY operations
@@ -117,8 +124,8 @@ type Sandbox struct {
 // [Sandbox.populateFromDTO] accept either DTO without duplicating logic.
 //
 // Fields that exist only on the full [apiclient.Sandbox] DTO (Env,
-// NetworkBlockAll, NetworkAllowList, Volumes, BuildInfo, BackupCreatedAt) are
-// populated via a type assertion inside populateFromDTO.
+// NetworkBlockAll, NetworkAllowList, DomainAllowList, Volumes, BuildInfo,
+// BackupCreatedAt) are populated via a type assertion inside populateFromDTO.
 type sandboxDTO interface {
 	GetId() string
 	GetName() string
@@ -317,7 +324,7 @@ func NewSandbox(client *Client, toolboxClient *toolbox.APIClient, dto sandboxDTO
 // populateFromDTO copies fields from a sandbox API DTO onto the receiver.
 //
 // Fields present only on the full *[apiclient.Sandbox] DTO (Env, NetworkBlockAll,
-// NetworkAllowList, Volumes, BuildInfo, BackupCreatedAt) are populated via a
+// NetworkAllowList, DomainAllowList, Volumes, BuildInfo, BackupCreatedAt) are populated via a
 // type assertion. When dto is a *[apiclient.SandboxListItem] they remain at
 // their zero values.
 func (s *Sandbox) populateFromDTO(dto sandboxDTO) {
@@ -371,6 +378,7 @@ func (s *Sandbox) populateFromDTO(dto sandboxDTO) {
 		s.Env = full.Env
 		s.NetworkBlockAll = &full.NetworkBlockAll
 		s.NetworkAllowList = full.NetworkAllowList
+		s.DomainAllowList = full.DomainAllowList
 		s.Volumes = full.Volumes
 		s.BuildInfo = full.BuildInfo
 		s.BackupCreatedAt = full.BackupCreatedAt
@@ -380,7 +388,7 @@ func (s *Sandbox) populateFromDTO(dto sandboxDTO) {
 // RefreshData refreshes the sandbox data from the API.
 //
 // This updates all sandbox fields from the server, including those not
-// populated by [Client.List] (Env, NetworkBlockAll, NetworkAllowList, Volumes,
+// populated by [Client.List] (Env, NetworkBlockAll, NetworkAllowList, DomainAllowList, Volumes,
 // BuildInfo, BackupCreatedAt).
 //
 // Example:
@@ -445,6 +453,23 @@ func (s *Sandbox) GetWorkingDir(ctx context.Context) (string, error) {
 
 		return resp.GetDir(), nil
 	})
+}
+
+// CreateLspServer creates a Language Server Protocol (LSP) server scoped to a
+// language and project path within the sandbox.
+//
+// The returned [LspServerService] must be started with [LspServerService.Start]
+// before use, and stopped with [LspServerService.Stop] when finished.
+//
+// Example:
+//
+//	lsp := sandbox.CreateLspServer(types.LspLanguagePython, "/home/user/project")
+//	if err := lsp.Start(ctx); err != nil {
+//	    return err
+//	}
+//	defer lsp.Stop(ctx)
+func (s *Sandbox) CreateLspServer(languageID types.LspLanguageID, pathToProject string) *LspServerService {
+	return NewLspServerService(s.ToolboxClient, languageID, pathToProject, s.otel)
 }
 
 // Start starts the sandbox with a default timeout of 60 seconds.
@@ -1134,6 +1159,91 @@ func (s *Sandbox) waitForSnapshotComplete(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return errors.NewDaytonaError("Sandbox snapshot did not complete within the timeout period", 0, nil)
+		case <-time.After(checkInterval):
+		}
+
+		if time.Since(startTime) > 5*time.Second {
+			checkInterval = min(time.Duration(float64(checkInterval)*1.1), 1*time.Second)
+		}
+	}
+	return nil
+}
+
+// Pause pauses the Sandbox, freezing all running processes.
+// Uses a default timeout of 60 seconds.
+//
+// The Sandbox will enter a 'pausing' state and transition to 'paused' when complete.
+//
+// Example:
+//
+//	err := sandbox.Pause(ctx)
+//	if err != nil {
+//	    return err
+//	}
+func (s *Sandbox) Pause(ctx context.Context) error {
+	return withInstrumentationVoid(ctx, s.otel, "Sandbox", "Pause", func(ctx context.Context) error {
+		return s.PauseWithTimeout(ctx, 60*time.Second)
+	})
+}
+
+// PauseWithTimeout pauses the Sandbox with a custom timeout.
+// 0 means no timeout.
+//
+// Example:
+//
+//	err := sandbox.PauseWithTimeout(ctx, 2*time.Minute)
+func (s *Sandbox) PauseWithTimeout(ctx context.Context, timeout time.Duration) error {
+	return withInstrumentationVoid(ctx, s.otel, "Sandbox", "PauseWithTimeout", func(ctx context.Context) error {
+		return s.doPauseWithTimeout(ctx, timeout)
+	})
+}
+
+func (s *Sandbox) doPauseWithTimeout(ctx context.Context, timeout time.Duration) error {
+	if timeout < 0 {
+		return errors.NewDaytonaError("Timeout must be a non-negative number", 0, nil)
+	}
+
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	authCtx := s.client.getAuthContext(ctx)
+	_, httpResp, err := s.client.apiClient.SandboxAPI.PauseSandbox(authCtx, s.ID).Execute()
+	if err != nil {
+		return errors.ConvertAPIError(err, httpResp)
+	}
+
+	if err := s.RefreshData(ctx); err != nil {
+		return err
+	}
+
+	return s.waitForPauseComplete(ctx)
+}
+
+func (s *Sandbox) waitForPauseComplete(ctx context.Context) error {
+	checkInterval := 100 * time.Millisecond
+	startTime := time.Now()
+
+	for s.State == apiclient.SANDBOXSTATE_PAUSING {
+		if err := s.RefreshData(ctx); err != nil {
+			return err
+		}
+
+		if s.State == apiclient.SANDBOXSTATE_ERROR || s.State == apiclient.SANDBOXSTATE_BUILD_FAILED {
+			return errors.NewDaytonaError(
+				fmt.Sprintf("Sandbox %s pause failed with state: %s", s.ID, s.State), 0, nil,
+			)
+		}
+
+		if s.State != apiclient.SANDBOXSTATE_PAUSING {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return errors.NewDaytonaError("Sandbox pause did not complete within the timeout period", 0, nil)
 		case <-time.After(checkInterval):
 		}
 

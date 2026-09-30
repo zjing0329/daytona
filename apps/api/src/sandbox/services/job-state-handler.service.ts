@@ -22,9 +22,6 @@ import { sanitizeSandboxError } from '../utils/sanitize-error.util'
 import { OrganizationUsageService } from '../../organization/services/organization-usage.service'
 import { SandboxRepository } from '../repositories/sandbox.repository'
 import { Sandbox } from '../entities/sandbox.entity'
-import { RedisLockProvider } from '../common/redis-lock.provider'
-import { ResourceType } from '../enums/resource-type.enum'
-import { getStateChangeLockKey } from '../utils/lock-key.util'
 import { SandboxEvents } from '../constants/sandbox-events.constants'
 import { SandboxStartedEvent } from '../events/sandbox-started.event'
 import { persistSnapshotFromSandbox } from '../utils/persist-snapshot-from-sandbox.util'
@@ -44,7 +41,6 @@ export class JobStateHandlerService {
     @InjectRepository(SnapshotRunner)
     private readonly snapshotRunnerRepository: Repository<SnapshotRunner>,
     private readonly organizationUsageService: OrganizationUsageService,
-    private readonly redisLockProvider: RedisLockProvider,
     private readonly eventEmitter: EventEmitter2,
     @InjectRepository(Runner)
     private readonly runnerRepository: Repository<Runner>,
@@ -86,6 +82,9 @@ export class JobStateHandlerService {
       case JobType.STOP_SANDBOX:
         await this.handleStopSandboxJobCompletion(job)
         break
+      case JobType.PAUSE_SANDBOX:
+        await this.handlePauseSandboxJobCompletion(job)
+        break
       case JobType.DESTROY_SANDBOX:
         await this.handleDestroySandboxJobCompletion(job)
         break
@@ -117,17 +116,10 @@ export class JobStateHandlerService {
         break
     }
 
-    switch (job.resourceType) {
-      case ResourceType.SANDBOX: {
-        const lockKey = getStateChangeLockKey(job.resourceId)
-        this.redisLockProvider
-          .unlock(lockKey)
-          .catch((error) => this.logger.error(`Error unlocking Redis lock for sandbox ${job.resourceId}:`, error)) // Clean up lock after job completion
-        break
-      }
-      default:
-        break
-    }
+    // Don't release the state-change lock here: unlock() is an unconditional DEL with no ownership
+    // check, so it can delete a lock still held by a running syncInstanceState loop for this sandbox
+    // (e.g. a DESTROY completing mid-loop), making it fan out duplicate jobs. Each holder releases
+    // its own lock, so no cleanup is needed.
   }
 
   private async handleCreateSandboxJobCompletion(job: Job): Promise<void> {
@@ -258,6 +250,44 @@ export class JobStateHandlerService {
       await this.sandboxRepository.update(sandboxId, { updateData, entity: sandbox })
     } catch (error) {
       this.logger.error(`Error handling STOP_SANDBOX job completion for sandbox ${sandboxId}:`, error)
+    }
+  }
+
+  private async handlePauseSandboxJobCompletion(job: Job): Promise<void> {
+    const sandboxId = job.resourceId
+    if (!sandboxId) return
+
+    try {
+      const sandbox = await this.sandboxRepository.findOne({ where: { id: sandboxId } })
+      if (!sandbox) {
+        this.logger.warn(`Sandbox ${sandboxId} not found for PAUSE_SANDBOX job ${job.id}`)
+        return
+      }
+
+      if (sandbox.state !== SandboxState.PAUSING) {
+        this.logger.error(
+          `Sandbox ${sandboxId} is not in state PAUSING for PAUSE_SANDBOX job ${job.id}. State: ${sandbox.state}`,
+        )
+        return
+      }
+
+      const updateData: Partial<Sandbox> = {}
+
+      if (job.status === JobStatus.COMPLETED) {
+        this.logger.debug(`PAUSE_SANDBOX job ${job.id} completed successfully, marking sandbox ${sandboxId} as PAUSED`)
+        updateData.state = SandboxState.PAUSED
+        updateData.errorReason = null
+      } else if (job.status === JobStatus.FAILED) {
+        this.logger.error(`PAUSE_SANDBOX job ${job.id} failed for sandbox ${sandboxId}: ${job.errorMessage}`)
+        updateData.state = SandboxState.ERROR
+        const { recoverable, errorReason } = sanitizeSandboxError(job.errorMessage)
+        updateData.errorReason = errorReason || 'Failed to pause sandbox'
+        updateData.recoverable = recoverable
+      }
+
+      await this.sandboxRepository.update(sandboxId, { updateData, entity: sandbox })
+    } catch (error) {
+      this.logger.error(`Error handling PAUSE_SANDBOX job completion for sandbox ${sandboxId}:`, error)
     }
   }
 

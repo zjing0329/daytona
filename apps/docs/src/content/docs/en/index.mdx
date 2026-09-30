@@ -18,7 +18,7 @@ tableOfContents: true
 
 import { TabItem, Tabs } from '@astrojs/starlight/components'
 
-Daytona is an open-source, secure and elastic infrastructure for running AI-generated code. Daytona provides full composable computers — [sandboxes](/docs/en/sandboxes) — with complete isolation, a dedicated kernel, filesystem, network stack, and allocated vCPU, RAM, and disk.
+Daytona is a secure and elastic infrastructure for running AI-generated code. Daytona provides full composable computers — [sandboxes](/docs/en/sandboxes) — with complete isolation, a dedicated kernel, filesystem, network stack, and allocated vCPU, RAM, and disk.
 
 Sandboxes are the core component of the Daytona platform, spinning up in under 90ms from code to execution and running any code in Python, TypeScript, and JavaScript. Built on OCI/Docker compatibility, massive parallelization, and unlimited persistence, sandboxes deliver consistent, predictable environments for agent workflows.
 
@@ -87,7 +87,7 @@ Add the Daytona SDK dependency to your `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("io.daytona:sdk-java:0.1.0")
+    implementation("io.daytona:sdk:x.y.z")
 }
 ```
 
@@ -98,8 +98,8 @@ Add the Daytona SDK dependency to your `pom.xml`:
 ```xml
 <dependency>
   <groupId>io.daytona</groupId>
-  <artifactId>sdk-java</artifactId>
-  <version>0.1.0</version>
+  <artifactId>sdk</artifactId>
+  <version>x.y.z</version>
 </dependency>
 ```
 

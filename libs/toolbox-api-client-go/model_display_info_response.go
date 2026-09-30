@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -20,7 +20,10 @@ var _ MappedNullable = &DisplayInfoResponse{}
 // DisplayInfoResponse struct for DisplayInfoResponse
 type DisplayInfoResponse struct {
 	Displays []DisplayInfo `json:"displays,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
+
+type _DisplayInfoResponse DisplayInfoResponse
 
 // NewDisplayInfoResponse instantiates a new DisplayInfoResponse object
 // This constructor will assign default values to properties that have it defined,
@@ -84,7 +87,33 @@ func (o DisplayInfoResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Displays) {
 		toSerialize["displays"] = o.Displays
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
+}
+
+func (o *DisplayInfoResponse) UnmarshalJSON(data []byte) (err error) {
+	varDisplayInfoResponse := _DisplayInfoResponse{}
+
+	err = json.Unmarshal(data, &varDisplayInfoResponse)
+
+	if err != nil {
+		return err
+	}
+
+	*o = DisplayInfoResponse(varDisplayInfoResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "displays")
+		o.AdditionalProperties = additionalProperties
+	}
+
+	return err
 }
 
 type NullableDisplayInfoResponse struct {

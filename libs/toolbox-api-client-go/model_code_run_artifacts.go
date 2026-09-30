@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -20,7 +20,10 @@ var _ MappedNullable = &CodeRunArtifacts{}
 // CodeRunArtifacts struct for CodeRunArtifacts
 type CodeRunArtifacts struct {
 	Charts []Chart `json:"charts,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
+
+type _CodeRunArtifacts CodeRunArtifacts
 
 // NewCodeRunArtifacts instantiates a new CodeRunArtifacts object
 // This constructor will assign default values to properties that have it defined,
@@ -84,7 +87,33 @@ func (o CodeRunArtifacts) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Charts) {
 		toSerialize["charts"] = o.Charts
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
+}
+
+func (o *CodeRunArtifacts) UnmarshalJSON(data []byte) (err error) {
+	varCodeRunArtifacts := _CodeRunArtifacts{}
+
+	err = json.Unmarshal(data, &varCodeRunArtifacts)
+
+	if err != nil {
+		return err
+	}
+
+	*o = CodeRunArtifacts(varCodeRunArtifacts)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "charts")
+		o.AdditionalProperties = additionalProperties
+	}
+
+	return err
 }
 
 type NullableCodeRunArtifacts struct {

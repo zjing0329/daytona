@@ -11,8 +11,10 @@ import { TimestampTooltip } from '@/components/TimestampTooltip'
 import { SandboxState as SandboxStateComponent } from '@/components/sandboxes/SandboxState'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { MiddleTruncate } from '@/components/ui/middle-truncate'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { getRelativeTimeString, truncateUUID } from '@/lib/utils'
+import { getRelativeTimeString } from '@/lib/utils'
+import { getTableColumnMaxResizeSize } from '@/lib/utils/table'
 import { SandboxDesiredState, SandboxListItem } from '@daytona/api-client'
 import { Column, ColumnDef, RowData, Table } from '@tanstack/react-table'
 import { Loader2 } from 'lucide-react'
@@ -37,6 +39,7 @@ type SandboxTableMeta = {
   handleScreenRecordings: (id: string) => void
   handleCreateSnapshot: (id: string) => void
   handleFork: (id: string) => void
+  handlePause: (id: string) => void
   handleViewForks: (id: string) => void
   handleOpenTerminal: (sandbox: SandboxListItem) => void
 }
@@ -169,8 +172,9 @@ const columns: ColumnDef<SandboxListItem>[] = [
   },
   {
     id: 'id',
-    size: 150,
-    maxSize: 150,
+    size: 240,
+    minSize: 150,
+    maxSize: getTableColumnMaxResizeSize(360),
     enableSorting: false,
     enableHiding: true,
     header: () => <span>UUID</span>,
@@ -178,8 +182,8 @@ const columns: ColumnDef<SandboxListItem>[] = [
     cell: ({ row }) => {
       const id = row.original.id
       return (
-        <div className="w-full truncate flex items-center gap-1 group/copy-button">
-          <span className="truncate block text-muted-foreground">{truncateUUID(id)}</span>
+        <div className="w-full min-w-0 flex items-center gap-1 group/copy-button">
+          <MiddleTruncate value={id} start={8} end={4} className="font-mono text-muted-foreground" />
           <CopyButton value={id} size="icon-xs" autoHide tooltipText="Copy UUID" />
         </div>
       )
@@ -190,7 +194,7 @@ const columns: ColumnDef<SandboxListItem>[] = [
     size: 110,
     minSize: 110,
     enableSorting: false,
-    enableHiding: false,
+    enableHiding: true,
     header: () => <span>State</span>,
     cell: ({ row }) => (
       <SandboxStateCell
@@ -204,9 +208,10 @@ const columns: ColumnDef<SandboxListItem>[] = [
   {
     id: 'sandboxClass',
     size: 64,
+    minSize: 64,
     maxSize: 64,
     enableSorting: false,
-    enableHiding: false,
+    enableHiding: true,
     header: () => <span>Class</span>,
     cell: ({ row }) => {
       const sandboxClass = row.original.sandboxClass
@@ -229,7 +234,7 @@ const columns: ColumnDef<SandboxListItem>[] = [
     id: 'snapshot',
     size: 150,
     enableSorting: false,
-    enableHiding: false,
+    enableHiding: true,
     header: () => <span>Snapshot</span>,
     cell: ({ row }) => (
       <div className="w-full truncate">
@@ -246,7 +251,7 @@ const columns: ColumnDef<SandboxListItem>[] = [
     id: 'region',
     size: 120,
     enableSorting: false,
-    enableHiding: false,
+    enableHiding: true,
     header: () => <span>Region</span>,
     cell: ({ row, table }) => {
       const { getRegionName } = getMeta(table)
@@ -262,7 +267,7 @@ const columns: ColumnDef<SandboxListItem>[] = [
     id: 'resources',
     size: 190,
     enableSorting: false,
-    enableHiding: false,
+    enableHiding: true,
     header: () => <span>Resources</span>,
     cell: ({ row }) => (
       <div className="flex w-full items-center gap-2 truncate">
@@ -291,7 +296,7 @@ const columns: ColumnDef<SandboxListItem>[] = [
   {
     id: 'labels',
     size: 120,
-    maxSize: 120,
+    maxSize: getTableColumnMaxResizeSize(120),
     enableSorting: false,
     enableHiding: true,
     header: () => <span>Labels</span>,
@@ -322,9 +327,9 @@ const columns: ColumnDef<SandboxListItem>[] = [
   {
     id: 'lastEvent',
     size: 140,
-    maxSize: 140,
+    maxSize: getTableColumnMaxResizeSize(140),
     enableSorting: true,
-    enableHiding: false,
+    enableHiding: true,
     header: ({ column }) => <SortableHeader column={column} label="Last Event" />,
     accessorFn: (row) => getLastEvent(row).date,
     cell: ({ row }) => {
@@ -341,9 +346,9 @@ const columns: ColumnDef<SandboxListItem>[] = [
   {
     id: 'createdAt',
     size: 180,
-    maxSize: 180,
+    maxSize: getTableColumnMaxResizeSize(180),
     enableSorting: true,
-    enableHiding: false,
+    enableHiding: true,
     header: ({ column }) => <SortableHeader column={column} label="Created" />,
     accessorFn: (row) => (row.createdAt ? new Date(row.createdAt) : new Date()),
     cell: ({ row }) => {
@@ -379,6 +384,7 @@ const columns: ColumnDef<SandboxListItem>[] = [
         handleScreenRecordings,
         handleCreateSnapshot,
         handleFork,
+        handlePause,
         handleViewForks,
         handleOpenTerminal,
       } = getMeta(table)
@@ -397,6 +403,7 @@ const columns: ColumnDef<SandboxListItem>[] = [
             onVnc={handleVnc}
             onCreateSshAccess={handleCreateSshAccess}
             onRevokeSshAccess={handleRevokeSshAccess}
+            onPause={handlePause}
             onRecover={handleRecover}
             onScreenRecordings={handleScreenRecordings}
             onCreateSnapshot={() => handleCreateSnapshot(row.original.id)}

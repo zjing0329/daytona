@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -12,7 +12,6 @@ package toolbox
 
 import (
 	"encoding/json"
-	"bytes"
 	"fmt"
 )
 
@@ -24,6 +23,7 @@ type LspDocumentRequest struct {
 	LanguageId string `json:"languageId"`
 	PathToProject string `json:"pathToProject"`
 	Uri string `json:"uri"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _LspDocumentRequest LspDocumentRequest
@@ -133,6 +133,11 @@ func (o LspDocumentRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize["languageId"] = o.LanguageId
 	toSerialize["pathToProject"] = o.PathToProject
 	toSerialize["uri"] = o.Uri
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -162,15 +167,22 @@ func (o *LspDocumentRequest) UnmarshalJSON(data []byte) (err error) {
 
 	varLspDocumentRequest := _LspDocumentRequest{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varLspDocumentRequest)
+	err = json.Unmarshal(data, &varLspDocumentRequest)
 
 	if err != nil {
 		return err
 	}
 
 	*o = LspDocumentRequest(varLspDocumentRequest)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "languageId")
+		delete(additionalProperties, "pathToProject")
+		delete(additionalProperties, "uri")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

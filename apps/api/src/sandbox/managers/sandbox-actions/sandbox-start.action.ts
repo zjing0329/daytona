@@ -84,6 +84,9 @@ export class SandboxStartAction extends SandboxAction {
       case SandboxState.STOPPED: {
         return this.handleRunnerSandboxStoppedOrArchivedStateOnDesiredStateStart(sandbox, lockCode)
       }
+      case SandboxState.PAUSED: {
+        return this.handleRunnerSandboxPausedStateOnDesiredStateStart(sandbox, lockCode)
+      }
       case SandboxState.RESTORING:
       case SandboxState.CREATING:
       case SandboxState.STARTING: {
@@ -484,17 +487,6 @@ export class SandboxStartAction extends SandboxAction {
       if (shouldMoveToNewRunner) {
         sandbox.prevRunnerId = originalRunnerId
         sandbox.runnerId = null
-
-        await this.sandboxRepository.update(
-          sandbox.id,
-          {
-            updateData: {
-              prevRunnerId: originalRunnerId,
-              runnerId: null,
-            },
-          },
-          true,
-        )
       }
 
       // If the sandbox is on a runner and its backupState is COMPLETED
@@ -514,16 +506,6 @@ export class SandboxStartAction extends SandboxAction {
             sandbox.prevRunnerId = originalRunnerId
             sandbox.runnerId = null
 
-            await this.sandboxRepository.update(
-              sandbox.id,
-              {
-                updateData: {
-                  prevRunnerId: originalRunnerId,
-                  runnerId: null,
-                },
-              },
-              true,
-            )
             try {
               const runnerAdapter = await this.runnerAdapterFactory.create(runner)
               await runnerAdapter.destroySandbox(sandbox.id)
@@ -574,6 +556,9 @@ export class SandboxStartAction extends SandboxAction {
           sandbox.volumes.map((v) => ({ volumeId: v.volumeId, mountPath: v.mountPath, subpath: v.subpath })),
         )
       }
+      if (sandbox.domainAllowList) {
+        metadata['domainAllowList'] = sandbox.domainAllowList
+      }
 
       try {
         await runnerAdapter.startSandbox(sandbox.id, sandbox.authToken, metadata)
@@ -600,6 +585,26 @@ export class SandboxStartAction extends SandboxAction {
       return SYNC_AGAIN
     }
 
+    return SYNC_AGAIN
+  }
+
+  private async handleRunnerSandboxPausedStateOnDesiredStateStart(
+    sandbox: Sandbox,
+    lockCode: LockCode,
+  ): Promise<SyncState> {
+    if (!sandbox.runnerId) {
+      this.logger.error(`Sandbox ${sandbox.id} in PAUSED state has no assigned runner`)
+      return DONT_SYNC_AGAIN
+    }
+
+    const runner = await this.runnerService.findOneOrFail(sandbox.runnerId)
+    if (runner.state !== RunnerState.READY) {
+      return DONT_SYNC_AGAIN
+    }
+
+    const runnerAdapter = await this.runnerAdapterFactory.create(runner)
+    await runnerAdapter.startSandbox(sandbox.id, sandbox.authToken)
+    await this.updateSandboxState(sandbox, SandboxState.RESUMING, lockCode)
     return SYNC_AGAIN
   }
 
@@ -889,7 +894,17 @@ export class SandboxStartAction extends SandboxAction {
     // Clear the retry counter on success
     await this.redis.del(restoreBackupSnapshotRetryKey)
 
-    await this.updateSandboxState(sandbox, SandboxState.RESTORING, lockCode, runner.id)
+    await this.updateSandboxState(
+      sandbox,
+      SandboxState.RESTORING,
+      lockCode,
+      runner.id,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      excludedRunnerId,
+    )
 
     const metadata = {
       ...organization?.sandboxMetadata,

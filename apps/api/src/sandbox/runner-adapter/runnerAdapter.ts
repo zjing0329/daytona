@@ -122,9 +122,12 @@ export interface RunnerAdapter {
     networkBlockAll?: boolean,
     networkAllowList?: string,
     networkLimitEgress?: boolean,
+    domainAllowList?: string,
   ): Promise<void>
 
   forkSandbox(sourceSandboxId: string, newSandboxId: string): Promise<void>
+
+  pauseSandbox(sandboxId: string): Promise<void>
 
   createSnapshotFromSandbox(
     sandboxId: string,

@@ -6,7 +6,7 @@
 import { CREATE_API_KEY_PERMISSIONS_GROUPS } from '@/constants/CreateApiKeyPermissionsGroups'
 import { DEFAULT_PAGE_SIZE } from '@/constants/Pagination'
 import { cn, getRelativeTimeString } from '@/lib/utils'
-import { getColumnSizeStyles } from '@/lib/utils/table'
+import { DEFAULT_TABLE_COLUMN, getColumnSizeStyles, getTableSizeStyles } from '@/lib/utils/table'
 import { ApiKeyList, ApiKeyListPermissionsEnum, CreateApiKeyPermissionsEnum } from '@daytona/api-client'
 
 import {
@@ -69,14 +69,13 @@ export function ApiKeyTable({ data, loading, isLoadingKey, onRevokeRequest }: Da
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
   const table = useReactTable({
+    columnResizeMode: 'onEnd',
     data,
     columns,
     meta: {
       apiKey: { isLoadingKey, onRevokeRequest },
     },
-    defaultColumn: {
-      minSize: 0,
-    },
+    defaultColumn: DEFAULT_TABLE_COLUMN,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -127,7 +126,9 @@ export function ApiKeyTable({ data, loading, isLoadingKey, onRevokeRequest }: Da
         />
       </div>
       <TableContainer
-        className={isEmpty ? 'min-h-[26rem]' : undefined}
+        className={cn({
+          'min-h-[26rem]': isEmpty,
+        })}
         empty={
           isEmpty ? (
             <TableEmptyState
@@ -170,13 +171,14 @@ export function ApiKeyTable({ data, loading, isLoadingKey, onRevokeRequest }: Da
           ) : null
         }
       >
-        <Table className="table-fixed" style={{ minWidth: table.getTotalSize() }}>
+        <Table className="table-fixed" style={getTableSizeStyles(table)}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
+                    header={header}
                     sticky={header.column.getIsPinned()}
                     style={getColumnSizeStyles(header.column)}
                   >
@@ -263,7 +265,7 @@ const columns: ColumnDef<ApiKeyList>[] = [
     header: 'Key',
     size: 220,
     cell: ({ row }) => {
-      return <div className="truncate">{row.original.value}</div>
+      return <div className="truncate text-muted-foreground">{row.original.value}</div>
     },
   },
   {
@@ -330,7 +332,7 @@ const columns: ColumnDef<ApiKeyList>[] = [
 
       return (
         <TimestampTooltip timestamp={expiresAt?.toString()}>
-          <span className={`cursor-default ${color}`}>{relativeTime}</span>
+          <span className={cn('cursor-default', color)}>{relativeTime}</span>
         </TimestampTooltip>
       )
     },

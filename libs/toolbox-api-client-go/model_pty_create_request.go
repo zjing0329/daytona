@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -26,7 +26,10 @@ type PtyCreateRequest struct {
 	// Don't start PTY until first client connects
 	LazyStart *bool `json:"lazyStart,omitempty"`
 	Rows *int32 `json:"rows,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
+
+type _PtyCreateRequest PtyCreateRequest
 
 // NewPtyCreateRequest instantiates a new PtyCreateRequest object
 // This constructor will assign default values to properties that have it defined,
@@ -265,7 +268,38 @@ func (o PtyCreateRequest) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Rows) {
 		toSerialize["rows"] = o.Rows
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
+}
+
+func (o *PtyCreateRequest) UnmarshalJSON(data []byte) (err error) {
+	varPtyCreateRequest := _PtyCreateRequest{}
+
+	err = json.Unmarshal(data, &varPtyCreateRequest)
+
+	if err != nil {
+		return err
+	}
+
+	*o = PtyCreateRequest(varPtyCreateRequest)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "cols")
+		delete(additionalProperties, "cwd")
+		delete(additionalProperties, "envs")
+		delete(additionalProperties, "id")
+		delete(additionalProperties, "lazyStart")
+		delete(additionalProperties, "rows")
+		o.AdditionalProperties = additionalProperties
+	}
+
+	return err
 }
 
 type NullablePtyCreateRequest struct {

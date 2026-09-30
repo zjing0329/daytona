@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -21,7 +21,10 @@ var _ MappedNullable = &ProcessLogsResponse{}
 type ProcessLogsResponse struct {
 	Logs *string `json:"logs,omitempty"`
 	ProcessName *string `json:"processName,omitempty"`
+	AdditionalProperties map[string]interface{}
 }
+
+type _ProcessLogsResponse ProcessLogsResponse
 
 // NewProcessLogsResponse instantiates a new ProcessLogsResponse object
 // This constructor will assign default values to properties that have it defined,
@@ -120,7 +123,34 @@ func (o ProcessLogsResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.ProcessName) {
 		toSerialize["processName"] = o.ProcessName
 	}
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
+}
+
+func (o *ProcessLogsResponse) UnmarshalJSON(data []byte) (err error) {
+	varProcessLogsResponse := _ProcessLogsResponse{}
+
+	err = json.Unmarshal(data, &varProcessLogsResponse)
+
+	if err != nil {
+		return err
+	}
+
+	*o = ProcessLogsResponse(varProcessLogsResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "logs")
+		delete(additionalProperties, "processName")
+		o.AdditionalProperties = additionalProperties
+	}
+
+	return err
 }
 
 type NullableProcessLogsResponse struct {

@@ -5,7 +5,12 @@
 
 import { DEFAULT_PAGE_SIZE } from '@/constants/Pagination'
 import { cn } from '@/lib/utils'
-import { getColumnSizeStyles } from '@/lib/utils/table'
+import {
+  DEFAULT_TABLE_COLUMN,
+  DEFAULT_TABLE_COLUMN_MIN_SIZE,
+  getColumnSizeStyles,
+  getTableSizeStyles,
+} from '@/lib/utils/table'
 import { Region, Runner, RunnerState } from '@daytona/api-client'
 import {
   ColumnDef,
@@ -29,6 +34,7 @@ import { SearchInput } from './SearchInput'
 import { Badge, BadgeProps } from './ui/badge'
 import { Button } from './ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu'
+import { MiddleTruncate } from './ui/middle-truncate'
 import { Skeleton } from './ui/skeleton'
 import { Switch } from './ui/switch'
 import {
@@ -65,6 +71,7 @@ interface RunnerTableProps {
   data: Runner[]
   regions: Region[]
   loading: boolean
+  activeRunnerId?: string
   isLoadingRunner: (runner: Runner) => boolean
   writePermitted: boolean
   deletePermitted: boolean
@@ -83,6 +90,7 @@ export function RunnerTable({
   data,
   regions,
   loading,
+  activeRunnerId,
   isLoadingRunner,
   writePermitted,
   deletePermitted,
@@ -98,10 +106,11 @@ export function RunnerTable({
 }: RunnerTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-
   const table = useReactTable({
+    columnResizeMode: 'onEnd',
     data,
     columns: runnerColumns,
+    defaultColumn: DEFAULT_TABLE_COLUMN,
     meta: {
       runner: {
         deletePermitted,
@@ -180,7 +189,9 @@ export function RunnerTable({
       </div>
 
       <TableContainer
-        className={isEmpty ? 'min-h-[26rem]' : undefined}
+        className={cn({
+          'min-h-[26rem]': isEmpty,
+        })}
         empty={
           isEmpty ? (
             <TableEmptyState
@@ -209,7 +220,7 @@ export function RunnerTable({
           ) : null
         }
       >
-        <Table className="table-fixed" style={{ minWidth: table.getTotalSize() }}>
+        <Table className="table-fixed" style={getTableSizeStyles(table)}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -218,6 +229,7 @@ export function RunnerTable({
                     <TableHead
                       className="px-2"
                       key={header.id}
+                      header={header}
                       style={getColumnSizeStyles(header.column)}
                       sticky={header.column.getIsPinned()}
                     >
@@ -250,12 +262,11 @@ export function RunnerTable({
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
-                  data-state={row.getIsSelected() && 'selected'}
-                  className={cn(
-                    'group/table-row',
-                    isLoadingRunner(row.original) ? 'opacity-50 pointer-events-none' : '',
-                    onRowClick && 'cursor-pointer hover:bg-muted/50',
-                  )}
+                  data-selected={row.getIsSelected() || row.original.id === activeRunnerId ? true : undefined}
+                  className={cn('group/table-row transition-all', {
+                    'opacity-50 pointer-events-none': isLoadingRunner(row.original),
+                    'cursor-pointer hover:bg-muted/50': onRowClick,
+                  })}
                   onClick={() => onRowClick?.(row.original)}
                 >
                   {row.getVisibleCells().map((cell) => (
@@ -330,8 +341,8 @@ const runnerColumns: ColumnDef<Runner>[] = [
     size: 240,
     cell: ({ row }) => {
       return (
-        <div className="w-full truncate flex items-center gap-1 group/copy-button">
-          <span className="truncate block text-sm">{row.original.id}</span>
+        <div className="w-full min-w-0 flex items-center gap-1 group/copy-button">
+          <MiddleTruncate value={row.original.id} start={8} end={4} className="font-mono text-sm" />
           <CopyButton value={row.original.id} size="icon-xs" autoHide tooltipText="Copy ID" />
         </div>
       )
@@ -364,7 +375,7 @@ const runnerColumns: ColumnDef<Runner>[] = [
   {
     accessorKey: 'unschedulable',
     header: 'Schedulable',
-    size: 60,
+    size: DEFAULT_TABLE_COLUMN_MIN_SIZE,
     cell: ({ row, table }) => {
       const { isLoadingRunner, onToggleEnabled, writePermitted } = getMeta(table)
       const isLoading = isLoadingRunner(row.original)

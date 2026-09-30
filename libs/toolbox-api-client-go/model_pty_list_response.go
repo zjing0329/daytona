@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -12,7 +12,6 @@ package toolbox
 
 import (
 	"encoding/json"
-	"bytes"
 	"fmt"
 )
 
@@ -22,6 +21,7 @@ var _ MappedNullable = &PtyListResponse{}
 // PtyListResponse struct for PtyListResponse
 type PtyListResponse struct {
 	Sessions []PtySessionInfo `json:"sessions"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _PtyListResponse PtyListResponse
@@ -79,6 +79,11 @@ func (o PtyListResponse) MarshalJSON() ([]byte, error) {
 func (o PtyListResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["sessions"] = o.Sessions
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -106,15 +111,20 @@ func (o *PtyListResponse) UnmarshalJSON(data []byte) (err error) {
 
 	varPtyListResponse := _PtyListResponse{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varPtyListResponse)
+	err = json.Unmarshal(data, &varPtyListResponse)
 
 	if err != nil {
 		return err
 	}
 
 	*o = PtyListResponse(varPtyListResponse)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "sessions")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

@@ -5,7 +5,7 @@
 
 import { DEFAULT_PAGE_SIZE } from '@/constants/Pagination'
 import { cn, getRelativeTimeString } from '@/lib/utils'
-import { getColumnSizeStyles } from '@/lib/utils/table'
+import { DEFAULT_TABLE_COLUMN, getColumnSizeStyles, getTableSizeStyles } from '@/lib/utils/table'
 import { Region, RegionType } from '@daytona/api-client'
 import {
   ColumnDef,
@@ -26,8 +26,10 @@ import { PageFooterPortal } from './PageLayout'
 import { Pagination } from './Pagination'
 import { SearchInput } from './SearchInput'
 import { TimestampTooltip } from './TimestampTooltip'
+import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu'
+import { MiddleTruncate } from './ui/middle-truncate'
 import { Skeleton } from './ui/skeleton'
 import {
   Table,
@@ -45,6 +47,7 @@ type RegionTableMeta = {
   isLoadingRegion: (region: Region) => boolean
   onDelete: (region: Region) => void
   onOpenDetails: (region: Region) => void
+  onUpdate: (region: Region) => void
   writePermitted: boolean
 }
 
@@ -61,34 +64,40 @@ const getMeta = (table: ReactTable<Region>) => {
 interface DataTableProps {
   data: Region[]
   loading: boolean
+  activeRegionId?: string
   isLoadingRegion: (region: Region) => boolean
   deletePermitted: boolean
   writePermitted: boolean
   onDelete: (region: Region) => void
   onOpenDetails: (region: Region) => void
+  onUpdate: (region: Region) => void
 }
 
 export function RegionTable({
   data,
   loading,
+  activeRegionId,
   isLoadingRegion,
   deletePermitted,
   writePermitted,
   onDelete,
   onOpenDetails,
+  onUpdate,
 }: DataTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-
   const table = useReactTable({
+    columnResizeMode: 'onEnd',
     data,
     columns: regionColumns,
+    defaultColumn: DEFAULT_TABLE_COLUMN,
     meta: {
       region: {
         deletePermitted,
         isLoadingRegion,
         onDelete,
         onOpenDetails,
+        onUpdate,
         writePermitted,
       },
     },
@@ -137,7 +146,9 @@ export function RegionTable({
         />
       </div>
       <TableContainer
-        className={isEmpty ? 'min-h-[26rem]' : undefined}
+        className={cn({
+          'min-h-[26rem]': isEmpty,
+        })}
         empty={
           isEmpty ? (
             <TableEmptyState
@@ -157,7 +168,7 @@ export function RegionTable({
           ) : null
         }
       >
-        <Table className="table-fixed" style={{ minWidth: table.getTotalSize() }}>
+        <Table className="table-fixed" style={getTableSizeStyles(table)}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -166,6 +177,7 @@ export function RegionTable({
                     <TableHead
                       className="px-2"
                       key={header.id}
+                      header={header}
                       style={getColumnSizeStyles(header.column)}
                       sticky={header.column.getIsPinned()}
                     >
@@ -196,18 +208,18 @@ export function RegionTable({
               </>
             ) : table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => {
-                const isCustom = row.original.regionType === RegionType.CUSTOM
                 const isLoading = isLoadingRegion(row.original)
+                const canOpenDetails = !isLoading
                 return (
                   <TableRow
                     key={row.id}
-                    data-state={row.getIsSelected() && 'selected'}
-                    className={cn('group/table-row', {
+                    data-selected={row.getIsSelected() || row.original.id === activeRegionId ? true : undefined}
+                    className={cn('group/table-row transition-all', {
                       'opacity-50 pointer-events-none': isLoading,
-                      'cursor-pointer hover:bg-muted/50': isCustom && !isLoading,
+                      'cursor-pointer hover:bg-muted/50': canOpenDetails,
                     })}
                     onClick={() => {
-                      if (isCustom && !isLoading) {
+                      if (canOpenDetails) {
                         onOpenDetails(row.original)
                       }
                     }}
@@ -215,7 +227,7 @@ export function RegionTable({
                     {row.getVisibleCells().map((cell) => (
                       <TableCell
                         className={cn('px-2', {
-                          'group-hover/table-row:underline': isCustom && !isLoading && cell.column.id === 'name',
+                          'group-hover/table-row:underline': canOpenDetails && cell.column.id === 'name',
                         })}
                         key={cell.id}
                         style={getColumnSizeStyles(cell.column)}
@@ -245,8 +257,13 @@ const regionColumns: ColumnDef<Region>[] = [
     size: 300,
     cell: ({ row }) => {
       return (
-        <div className="w-full truncate flex items-center gap-1 group/copy-button">
-          <span className="truncate block">{row.original.name}</span>
+        <div className="w-full min-w-0 flex items-center gap-1 group/copy-button">
+          <span className="truncate block text-sm">{row.original.name}</span>
+          {row.original.regionType !== RegionType.CUSTOM && (
+            <Badge variant="secondary" className="ml-1 shrink-0">
+              Shared
+            </Badge>
+          )}
           <CopyButton value={row.original.name} size="icon-xs" autoHide tooltipText="Copy Name" />
         </div>
       )
@@ -258,8 +275,8 @@ const regionColumns: ColumnDef<Region>[] = [
     size: 300,
     cell: ({ row }) => {
       return (
-        <div className="w-full truncate flex items-center gap-1 group/copy-button">
-          <span className="truncate block">{row.original.id}</span>
+        <div className="w-full min-w-0 flex items-center gap-1 group/copy-button">
+          <MiddleTruncate value={row.original.id} start={8} end={4} className="font-mono" />
           <CopyButton value={row.original.id} size="icon-xs" autoHide tooltipText="Copy ID" />
         </div>
       )
@@ -292,7 +309,7 @@ const regionColumns: ColumnDef<Region>[] = [
       return null
     },
     cell: ({ row, table }) => {
-      const { deletePermitted, isLoadingRegion, onDelete, onOpenDetails, writePermitted } = getMeta(table)
+      const { deletePermitted, isLoadingRegion, onDelete, onUpdate, writePermitted } = getMeta(table)
 
       if (row.original.regionType !== RegionType.CUSTOM || (!deletePermitted && !writePermitted)) {
         return <div className="flex justify-end h-8 w-8" />
@@ -309,9 +326,11 @@ const regionColumns: ColumnDef<Region>[] = [
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onOpenDetails(row.original)} disabled={isLoading}>
-                Details
-              </DropdownMenuItem>
+              {writePermitted && (
+                <DropdownMenuItem onClick={() => onUpdate(row.original)} disabled={isLoading}>
+                  Edit
+                </DropdownMenuItem>
+              )}
               {deletePermitted && (
                 <DropdownMenuItem onClick={() => onDelete(row.original)} variant="destructive" disabled={isLoading}>
                   Delete

@@ -22,7 +22,7 @@ test('filter class and remaining limit are applied before selecting rows',async(
   assert.deepEqual(await claimPendingJobs(repo,'runner-a',2,mode),[])
   assert.equal(query.take,2);assert.equal(query.where.runnerId,'runner-a')
   if(mode==='heavy'){assert.equal(query.where.type.type,'not');assert.equal(query.where.type.child.type,'in')}
-  if(mode==='cleanup'){assert.equal(query.where.type.type,'in');assert.deepEqual(query.where.type.value,['STOP_SANDBOX','DESTROY_SANDBOX','REMOVE_SNAPSHOT'])}
+  if(mode==='cleanup'){assert.equal(query.where.type.type,'in');assert.deepEqual(query.where.type.value,['STOP_SANDBOX','DESTROY_SANDBOX','REMOVE_SNAPSHOT','PAUSE_SANDBOX'])}
   if(!mode)assert.equal(query.where.type,undefined)
  }
 })

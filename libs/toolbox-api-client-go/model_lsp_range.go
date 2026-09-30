@@ -1,7 +1,7 @@
 /*
 Daytona Toolbox API
 
-Daytona Toolbox API
+Daytona Toolbox API. The base URL comes from the sandbox's `toolboxProxyUrl` field (returned in sandbox DTO by the main Daytona API) plus the sandbox ID: `{toolboxProxyUrl}/{sandboxId}/{endpoint}`. Default for Daytona Cloud: `https://proxy.app.daytona.io/toolbox/{sandboxId}`.
 
 API version: v0.0.0-dev
 */
@@ -12,7 +12,6 @@ package toolbox
 
 import (
 	"encoding/json"
-	"bytes"
 	"fmt"
 )
 
@@ -23,6 +22,7 @@ var _ MappedNullable = &LspRange{}
 type LspRange struct {
 	End LspPosition `json:"end"`
 	Start LspPosition `json:"start"`
+	AdditionalProperties map[string]interface{}
 }
 
 type _LspRange LspRange
@@ -106,6 +106,11 @@ func (o LspRange) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["end"] = o.End
 	toSerialize["start"] = o.Start
+
+	for key, value := range o.AdditionalProperties {
+		toSerialize[key] = value
+	}
+
 	return toSerialize, nil
 }
 
@@ -134,15 +139,21 @@ func (o *LspRange) UnmarshalJSON(data []byte) (err error) {
 
 	varLspRange := _LspRange{}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varLspRange)
+	err = json.Unmarshal(data, &varLspRange)
 
 	if err != nil {
 		return err
 	}
 
 	*o = LspRange(varLspRange)
+
+	additionalProperties := make(map[string]interface{})
+
+	if err = json.Unmarshal(data, &additionalProperties); err == nil {
+		delete(additionalProperties, "end")
+		delete(additionalProperties, "start")
+		o.AdditionalProperties = additionalProperties
+	}
 
 	return err
 }

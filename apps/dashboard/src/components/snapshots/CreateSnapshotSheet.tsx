@@ -22,13 +22,14 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { useCreateSnapshotMutation } from '@/hooks/mutations/useCreateSnapshotMutation'
 import { useOrganizationUsageOverviewQuery } from '@/hooks/queries/useOrganizationUsageOverviewQuery'
+import { useAvailableRegionsQuery } from '@/hooks/queries/useRegionsQuery'
 import { useAvailableSandboxClasses } from '@/hooks/useAvailableSandboxClasses'
-import { useRegions } from '@/hooks/useRegions'
 import { useSelectedOrganization } from '@/hooks/useSelectedOrganization'
 import { handleApiError } from '@/lib/error-handling'
 import { GPU_TYPE_LABELS } from '@/lib/gpu-types'
+import { EMPTY_REGIONS } from '@/lib/regions'
 import { imageNameSchema } from '@/lib/schema'
-import { getRegionFullDisplayName } from '@/lib/utils'
+import { cn, getRegionFullDisplayName } from '@/lib/utils'
 import type { SnapshotDto } from '@daytona/api-client'
 import { GpuType, SandboxClass } from '@daytona/api-client'
 import { useForm, useStore } from '@tanstack/react-form'
@@ -96,8 +97,10 @@ export const CreateSnapshotSheet = ({
 }) => {
   const [open, setOpen] = useState(false)
 
-  const { availableRegions: regions, loadingAvailableRegions: loadingRegions } = useRegions()
   const { selectedOrganization } = useSelectedOrganization()
+  const { data: regions = EMPTY_REGIONS, isLoading: loadingRegions } = useAvailableRegionsQuery(
+    selectedOrganization?.id,
+  )
   const { reset: resetCreateSnapshotMutation, ...createSnapshotMutation } = useCreateSnapshotMutation()
   const formRef = useRef<HTMLFormElement>(null)
   const { data: usageOverview } = useOrganizationUsageOverviewQuery({
@@ -193,7 +196,7 @@ export const CreateSnapshotSheet = ({
       <SheetTrigger asChild>
         <CreateResourceButton resource="Snapshot" />
       </SheetTrigger>
-      <SheetContent className={`w-dvw sm:w-[500px] p-0 flex flex-col gap-0 ${className ?? ''}`}>
+      <SheetContent className={cn('w-dvw sm:w-[500px] p-0 flex flex-col gap-0', className)}>
         <SheetHeader className="border-b border-border p-4 px-5 items-center flex text-left flex-row">
           <SheetTitle>Create Snapshot</SheetTitle>
           <SheetDescription className="sr-only">

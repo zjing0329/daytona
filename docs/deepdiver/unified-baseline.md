@@ -1,3 +1,5 @@
+> Historical consolidation checkpoint at c5d341052db573e6c864d784150fe63d3d2c3282. The subsequent v0.190 upgrade is documented in [upgrade-v0190.md](upgrade-v0190.md). Statements below about source and deployed versions describe the consolidation checkpoint.
+
 # Unified v0.187 source baseline
 
 The active branch is `codex/dsec-api-v0187-20260929` in `zjing0329/daytona`.

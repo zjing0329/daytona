@@ -8,7 +8,6 @@ import {
   Calendar,
   CalendarPlus,
   Camera,
-  Columns,
   Cpu,
   Eye,
   Globe,
@@ -20,22 +19,21 @@ import {
   Tag,
   Wrench,
 } from 'lucide-react'
+import { DataTableConfigMenu } from '@/components/DataTableConfigMenu'
+import { useAvailableSandboxClassesForOrganization } from '@/hooks/useAvailableSandboxClasses'
+import { cn } from '@/lib/utils'
 import { SearchInput } from '../SearchInput'
 import TooltipButton from '../TooltipButton'
 import { Button } from '../ui/button'
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuLabel,
   DropdownMenuPortal,
-  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { BooleanFilter, BooleanFilterIndicator } from './filters/BooleanFilter'
 import { CreatedAtFilter, CreatedAtFilterIndicator } from './filters/CreatedAtFilter'
 import { LabelFilter, LabelFilterIndicator } from './filters/LabelFilter'
@@ -54,10 +52,12 @@ const RESOURCE_FILTERS = [
 ]
 
 const SANDBOX_TABLE_COLUMN_LABELS: Record<string, string> = {
+  actions: 'Actions',
+  select: 'Selection',
   name: 'Name',
   id: 'UUID',
   state: 'State',
-  class: 'Class',
+  sandboxClass: 'Class',
   snapshot: 'Snapshot',
   region: 'Region',
   resources: 'Resources',
@@ -65,6 +65,8 @@ const SANDBOX_TABLE_COLUMN_LABELS: Record<string, string> = {
   lastEvent: 'Last Event',
   createdAt: 'Created At',
 }
+
+const SANDBOX_TABLE_CONFIG_EXCLUDED_COLUMN_IDS = ['actions', 'select', 'isPublic', 'isRecoverable'] as const
 
 export function SandboxTableHeader({
   table,
@@ -77,9 +79,11 @@ export function SandboxTableHeader({
   onRefresh,
   isRefreshing = false,
 }: SandboxTableHeaderProps) {
-  const classColumnAvailable = Boolean(table.getColumn('sandboxClass'))
+  const availableSandboxClasses = useAvailableSandboxClassesForOrganization()
+  const sandboxClassColumn = table.getColumn('sandboxClass')
+  const showClassFilter = availableSandboxClasses.length > 1 && Boolean(sandboxClassColumn)
   const hasStateFilter = ((table.getColumn('state')?.getFilterValue() as string[]) || []).length > 0
-  const hasClassFilter = ((table.getColumn('sandboxClass')?.getFilterValue() as string[]) || []).length > 0
+  const hasClassFilter = ((sandboxClassColumn?.getFilterValue() as string[]) || []).length > 0
   const hasSnapshotFilter = ((table.getColumn('snapshot')?.getFilterValue() as string[]) || []).length > 0
   const hasRegionFilter = ((table.getColumn('region')?.getFilterValue() as string[]) || []).length > 0
   const hasLabelsFilter = ((table.getColumn('labels')?.getFilterValue() as string[]) || []).length > 0
@@ -137,7 +141,7 @@ export function SandboxTableHeader({
                   </DropdownMenuSubContent>
                 </DropdownMenuPortal>
               </DropdownMenuSub>
-              {classColumnAvailable && (
+              {showClassFilter && (
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <Boxes className="w-4 h-4" />
@@ -146,8 +150,8 @@ export function SandboxTableHeader({
                   <DropdownMenuPortal>
                     <DropdownMenuSubContent className="p-0 w-64">
                       <SandboxClassFilter
-                        value={(table.getColumn('sandboxClass')?.getFilterValue() as string[]) || []}
-                        onFilterChange={(value) => table.getColumn('sandboxClass')?.setFilterValue(value)}
+                        value={(sandboxClassColumn?.getFilterValue() as string[]) || []}
+                        onFilterChange={(value) => sandboxClassColumn?.setFilterValue(value)}
                       />
                     </DropdownMenuSubContent>
                   </DropdownMenuPortal>
@@ -289,9 +293,14 @@ export function SandboxTableHeader({
             className="shrink-0"
             tooltipText="Refresh"
           >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={cn('w-4 h-4', { 'animate-spin': isRefreshing })} />
           </TooltipButton>
-          <SandboxTableSettings table={table} />
+          <DataTableConfigMenu
+            table={table}
+            persistenceKey="sandboxes"
+            excludedColumnIds={SANDBOX_TABLE_CONFIG_EXCLUDED_COLUMN_IDS}
+            getColumnLabel={(columnId) => SANDBOX_TABLE_COLUMN_LABELS[columnId] ?? columnId}
+          />
         </div>
       </div>
 
@@ -315,8 +324,8 @@ export function SandboxTableHeader({
           )}
           {hasClassFilter && (
             <SandboxClassFilterIndicator
-              value={(table.getColumn('sandboxClass')?.getFilterValue() as string[]) || []}
-              onFilterChange={(value) => table.getColumn('sandboxClass')?.setFilterValue(value)}
+              value={(sandboxClassColumn?.getFilterValue() as string[]) || []}
+              onFilterChange={(value) => sandboxClassColumn?.setFilterValue(value)}
             />
           )}
           {hasRegionFilter && (
@@ -373,42 +382,5 @@ export function SandboxTableHeader({
         </div>
       ) : null}
     </div>
-  )
-}
-
-function SandboxTableSettings({ table }: Pick<SandboxTableHeaderProps, 'table'>) {
-  const hideableColumns = table.getAllLeafColumns().filter((column) => column.getCanHide())
-
-  if (hideableColumns.length === 0) {
-    return null
-  }
-
-  return (
-    <DropdownMenu modal={false}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon-sm" aria-label="Table settings">
-              <Columns className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>Table settings</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuLabel>Columns</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {hideableColumns.map((column) => (
-          <DropdownMenuCheckboxItem
-            key={column.id}
-            checked={column.getIsVisible()}
-            onCheckedChange={(checked) => column.toggleVisibility(checked === true)}
-            onSelect={(event) => event.preventDefault()}
-          >
-            {SANDBOX_TABLE_COLUMN_LABELS[column.id] ?? column.id}
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }

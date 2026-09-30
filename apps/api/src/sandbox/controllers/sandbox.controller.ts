@@ -269,6 +269,7 @@ export class SandboxController {
         buildInfo: req.body?.buildInfo,
         networkBlockAll: req.body?.networkBlockAll,
         networkAllowList: req.body?.networkAllowList,
+        domainAllowList: req.body?.domainAllowList,
         linkedSandbox: req.body?.linkedSandbox,
       }),
     },
@@ -484,7 +485,9 @@ export class SandboxController {
   @SkipThrottle({ authenticated: true })
   @ThrottlerScope('sandbox-lifecycle')
   @ApiOperation({
-    summary: 'Start sandbox',
+    summary: 'Start or resume sandbox',
+    description:
+      'Starts a stopped or archived sandbox, or resumes a paused sandbox. The transition taken depends on the current sandbox state.',
     operationId: 'startSandbox',
   })
   @ApiParam({
@@ -494,7 +497,7 @@ export class SandboxController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Sandbox has been started or is being restored from archived state',
+    description: 'Sandbox has been started, is being restored from archived state, or is being resumed from paused',
     type: SandboxDto,
   })
   @UseGuards(OrganizationAuthContextGuard, SandboxAccessGuard)
@@ -562,6 +565,40 @@ export class SandboxController {
     @Query('force', new ParseBoolPipe({ optional: true })) force?: boolean,
   ): Promise<SandboxDto> {
     const sandbox = await this.sandboxService.stop(sandboxIdOrName, authContext.organizationId, force)
+    return this.sandboxService.toSandboxDto(sandbox)
+  }
+
+  @Post(':sandboxIdOrName/pause')
+  @HttpCode(200)
+  @SkipThrottle({ authenticated: true })
+  @ThrottlerScope('sandbox-lifecycle')
+  @ApiOperation({
+    summary: 'Pause sandbox',
+    operationId: 'pauseSandbox',
+  })
+  @ApiParam({
+    name: 'sandboxIdOrName',
+    description: 'ID or name of the sandbox',
+    type: 'string',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Sandbox pause has been initiated',
+    type: SandboxDto,
+  })
+  @UseGuards(OrganizationAuthContextGuard, SandboxAccessGuard)
+  @RequiredOrganizationResourcePermissions([OrganizationResourcePermission.WRITE_SANDBOXES])
+  @Audit({
+    action: AuditAction.PAUSE,
+    targetType: AuditTarget.SANDBOX,
+    targetIdFromRequest: (req) => req.params.sandboxIdOrName,
+    targetIdFromResult: (result: SandboxDto) => result?.id,
+  })
+  async pauseSandbox(
+    @IsOrganizationAuthContext() authContext: OrganizationAuthContext,
+    @Param('sandboxIdOrName') sandboxIdOrName: string,
+  ): Promise<SandboxDto> {
+    const sandbox = await this.sandboxService.pause(sandboxIdOrName, authContext.organization)
     return this.sandboxService.toSandboxDto(sandbox)
   }
 
@@ -1061,6 +1098,7 @@ export class SandboxController {
       body: (req: TypedRequest<UpdateSandboxNetworkSettingsDto>) => ({
         networkBlockAll: req.body?.networkBlockAll,
         networkAllowList: req.body?.networkAllowList,
+        domainAllowList: req.body?.domainAllowList,
       }),
     },
   })
@@ -1074,13 +1112,18 @@ export class SandboxController {
         'Network access is restricted and cannot be overridden at the sandbox level. See https://www.daytona.io/docs/en/network-limits/#tier-based-network-restrictions',
       )
     }
-    if (networkSettings.networkBlockAll === undefined && networkSettings.networkAllowList === undefined) {
-      throw new BadRequestError('At least one of networkBlockAll or networkAllowList must be provided')
+    if (
+      networkSettings.networkBlockAll === undefined &&
+      networkSettings.networkAllowList === undefined &&
+      networkSettings.domainAllowList === undefined
+    ) {
+      throw new BadRequestError('At least one of networkBlockAll, networkAllowList or domainAllowList must be provided')
     }
     const sandbox = await this.sandboxService.updateNetworkSettings(
       sandboxIdOrName,
       networkSettings.networkBlockAll,
       networkSettings.networkAllowList,
+      networkSettings.domainAllowList,
       authContext.organizationId,
     )
     return this.sandboxService.toSandboxDto(sandbox)

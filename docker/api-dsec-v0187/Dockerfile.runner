@@ -1,4 +1,14 @@
-# Validate this local base tag against sha256:210536331a461cb811494f453d6a8d12a785d1df957a96d965c96266b006d9d2 before building.
-FROM deepdiver/daytona-runner:stability-132899b
-LABEL org.opencontainers.image.revision="e7a64026f6cbbd1e14eba9fe38bde8e3cf940673"       io.deepdiver.base.image-id="sha256:210536331a461cb811494f453d6a8d12a785d1df957a96d965c96266b006d9d2"       io.deepdiver.runner.binary-sha256="97a77dc751dcbc211478fadeb02baec1260282fe8cf288f0c3766fc456a0cfc7"
+# Package only a complete Runner build, using hack/runner/package-complete-image.py.
+ARG BASE_IMAGE=deepdiver/daytona-runner:stability-132899b
+FROM ${BASE_IMAGE}
+ARG SOURCE_REVISION
+ARG RUNNER_BINARY_SHA256
+ARG BASE_IMAGE_ID
 COPY --chmod=0755 daytona-runner /usr/local/bin/daytona-runner
+RUN printf '%s\n' "$SOURCE_REVISION" | grep -Eq '^[0-9a-f]{40}$' \
+ && printf '%s\n' "$RUNNER_BINARY_SHA256" | grep -Eq '^[0-9a-f]{64}$' \
+ && printf '%s\n' "$BASE_IMAGE_ID" | grep -Eq '^sha256:[0-9a-f]{64}$' \
+ && printf '%s  %s\n' "$RUNNER_BINARY_SHA256" /usr/local/bin/daytona-runner | sha256sum -c -
+LABEL org.opencontainers.image.revision="$SOURCE_REVISION" \
+      io.deepdiver.base.image-id="$BASE_IMAGE_ID" \
+      io.deepdiver.runner.binary-sha256="$RUNNER_BINARY_SHA256"

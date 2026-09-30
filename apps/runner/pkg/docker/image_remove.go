@@ -7,10 +7,16 @@ import (
 	"context"
 
 	"github.com/containerd/errdefs"
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/docker/docker/api/types/image"
 )
 
 func (d *DockerClient) RemoveImage(ctx context.Context, imageName string, force bool) error {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Cleanup)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	defer release()
 	_, err := d.apiClient.ImageRemove(ctx, imageName, image.RemoveOptions{
 		Force:         force,
 		PruneChildren: true,

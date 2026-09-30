@@ -51,6 +51,18 @@ type Config struct {
 	VolumeCleanupExclusionPeriod       time.Duration `envconfig:"VOLUME_CLEANUP_EXCLUSION_PERIOD" default:"120s" validate:"min=0s"`
 	PollTimeout                        time.Duration `envconfig:"POLL_TIMEOUT" default:"30s"`
 	PollLimit                          int           `envconfig:"POLL_LIMIT" default:"10" validate:"min=1,max=100"`
+	SandboxCreateConcurrency           int           `envconfig:"SANDBOX_CREATE_CONCURRENCY" default:"3" validate:"min=0"`
+	SandboxDestroyConcurrency          int           `envconfig:"SANDBOX_DESTROY_CONCURRENCY" default:"2" validate:"min=0"`
+	NodeHeavyConcurrency               int           `envconfig:"NODE_HEAVY_CONCURRENCY" default:"3" validate:"min=1,max=100"`
+	NodeCleanupConcurrency             int           `envconfig:"NODE_CLEANUP_CONCURRENCY" default:"2" validate:"min=1,max=100"`
+	NodePressureEnabled                bool          `envconfig:"NODE_PRESSURE_ENABLED" default:"false"`
+	NodePressureProcRoot               string        `envconfig:"NODE_PRESSURE_PROC_ROOT" default:"/proc"`
+	NodePressureDiskPath               string        `envconfig:"NODE_PRESSURE_DISK_PATH" default:"/var/lib/docker"`
+	NodeMinMemoryPercent               float64       `envconfig:"NODE_MIN_MEMORY_PERCENT" default:"10" validate:"min=0,max=80"`
+	NodeMinDiskPercent                 float64       `envconfig:"NODE_MIN_DISK_PERCENT" default:"10" validate:"min=0,max=80"`
+	NodeMinInodePercent                float64       `envconfig:"NODE_MIN_INODE_PERCENT" default:"5" validate:"min=0,max=80"`
+	NodeMaxIOPSI                       float64       `envconfig:"NODE_MAX_IO_PSI" default:"20" validate:"min=0,max=100"`
+	NodeMaxCPUPSI                      float64       `envconfig:"NODE_MAX_CPU_PSI" default:"0" validate:"min=0,max=100"`
 	CollectorWindowSize                int           `envconfig:"COLLECTOR_WINDOW_SIZE" default:"60" validate:"min=1"`
 	CPUUsageSnapshotInterval           time.Duration `envconfig:"CPU_USAGE_SNAPSHOT_INTERVAL" default:"5s" validate:"min=1s"`
 	AllocatedResourcesSnapshotInterval time.Duration `envconfig:"ALLOCATED_RESOURCES_SNAPSHOT_INTERVAL" default:"5s" validate:"min=1s"`

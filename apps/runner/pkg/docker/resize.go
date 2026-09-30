@@ -10,6 +10,7 @@ import (
 
 	"github.com/containerd/errdefs"
 	"github.com/daytonaio/common-go/pkg/utils"
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/api/dto"
 	"github.com/daytonaio/runner/pkg/common"
 
@@ -18,6 +19,11 @@ import (
 )
 
 func (d *DockerClient) Resize(ctx context.Context, sandboxId string, sandboxDto dto.ResizeSandboxDTO) error {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Heavy)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	defer release()
 	// Handle disk resize (requires container recreation)
 	// Value of 0 means "don't change" (minimum valid value is 1)
 	if sandboxDto.Disk > 0 {

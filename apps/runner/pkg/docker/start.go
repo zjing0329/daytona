@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/daytonaio/common-go/pkg/timer"
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/api/dto"
 	"github.com/daytonaio/runner/pkg/common"
 	"github.com/docker/docker/api/types/container"
@@ -18,6 +19,11 @@ import (
 )
 
 func (d *DockerClient) Start(ctx context.Context, containerId string, authToken *string, metadata map[string]string) (*container.InspectResponse, string, error) {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Heavy)
+	if admissionErr != nil {
+		return nil, "", admissionErr
+	}
+	defer release()
 	defer timer.Timer()()
 
 	// Cancel a backup if it's already in progress

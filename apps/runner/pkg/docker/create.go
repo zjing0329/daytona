@@ -14,6 +14,7 @@ import (
 
 	"github.com/containerd/errdefs"
 	"github.com/daytonaio/common-go/pkg/timer"
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/api/dto"
 	"github.com/daytonaio/runner/pkg/common"
 	"github.com/daytonaio/runner/pkg/models/enums"
@@ -24,6 +25,11 @@ import (
 )
 
 func (d *DockerClient) Create(ctx context.Context, sandboxDto dto.CreateSandboxDTO) (string, string, error) {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Heavy)
+	if admissionErr != nil {
+		return "", "", admissionErr
+	}
+	defer release()
 	defer timer.Timer()()
 
 	startTime := time.Now()

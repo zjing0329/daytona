@@ -10,10 +10,16 @@ import (
 	"time"
 
 	common_errors "github.com/daytonaio/common-go/pkg/errors"
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/api/dto"
 )
 
 func (d *DockerClient) BuildSnapshot(ctx context.Context, req dto.BuildSnapshotRequestDTO) error {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Heavy)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	defer release()
 	buildCtx, cancel := context.WithTimeout(ctx, time.Duration(d.buildTimeoutMin)*time.Minute)
 	defer cancel()
 

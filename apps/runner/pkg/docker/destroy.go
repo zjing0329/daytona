@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/containerd/errdefs"
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/common"
 	"github.com/daytonaio/runner/pkg/models/enums"
 	"github.com/docker/docker/api/types/container"
@@ -18,6 +19,11 @@ import (
 )
 
 func (d *DockerClient) Destroy(ctx context.Context, containerId string) error {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Cleanup)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	defer release()
 	startTime := time.Now()
 	defer func() {
 		obs, err := common.ContainerOperationDuration.GetMetricWithLabelValues("destroy")

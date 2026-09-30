@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/api/dto"
 )
 
@@ -45,6 +46,11 @@ func snapshotCanonicalImageRef(reg *dto.RegistryDTO, hash string) string {
 // snapshot record. Running containers are briefly paused during commit to
 // produce a consistent on-disk snapshot.
 func (d *DockerClient) CreateSnapshotFromSandbox(ctx context.Context, sandboxID string, registry *dto.RegistryDTO) (*dto.SnapshotInfoResponse, error) {
+	ctx, release, admissionErr := d.ReserveOperation(ctx, admission.Heavy)
+	if admissionErr != nil {
+		return nil, admissionErr
+	}
+	defer release()
 	if registry == nil || strings.TrimSpace(registry.Url) == "" {
 		return nil, fmt.Errorf("registry is required for sandbox snapshot")
 	}
@@ -85,7 +91,7 @@ func (d *DockerClient) CreateSnapshotFromSandbox(ctx context.Context, sandboxID 
 	// Best-effort cleanup of the temp tag at the end. The canonical tag is
 	// removed separately after push.
 	defer func() {
-		if rmErr := d.RemoveImage(context.Background(), tempRef, true); rmErr != nil {
+		if rmErr := d.RemoveImage(context.WithoutCancel(ctx), tempRef, true); rmErr != nil {
 			d.logger.WarnContext(ctx, "Failed to remove local temp snapshot image", "imageRef", tempRef, "error", rmErr)
 		}
 	}()
@@ -125,7 +131,7 @@ func (d *DockerClient) CreateSnapshotFromSandbox(ctx context.Context, sandboxID 
 		// Always remove the canonical local tag - it's only needed long enough
 		// to push. Force-remove because there may be no other tag pointing at
 		// the image after the temp tag is gone.
-		if rmErr := d.RemoveImage(context.Background(), canonicalRef, true); rmErr != nil && pushedOK {
+		if rmErr := d.RemoveImage(context.WithoutCancel(ctx), canonicalRef, true); rmErr != nil && pushedOK {
 			d.logger.WarnContext(ctx, "Failed to remove local canonical snapshot image after push", "imageRef", canonicalRef, "error", rmErr)
 		}
 	}()

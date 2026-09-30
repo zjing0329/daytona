@@ -16,6 +16,7 @@ import (
 	"github.com/daytonaio/runner/cmd/runner/config"
 	"github.com/daytonaio/runner/internal"
 	"github.com/daytonaio/runner/internal/metrics"
+	"github.com/daytonaio/runner/pkg/admission"
 	"github.com/daytonaio/runner/pkg/api"
 	"github.com/daytonaio/runner/pkg/cache"
 	"github.com/daytonaio/runner/pkg/daemon"
@@ -141,8 +142,20 @@ func run() int {
 
 	backupInfoCache := cache.NewBackupInfoCache(ctx, cfg.BackupInfoCacheRetention)
 
+	var pressure func() error
+	if cfg.NodePressureEnabled {
+		guard := admission.NewPressureGuard(admission.PressureConfig{
+			ProcRoot: cfg.NodePressureProcRoot, DiskPath: cfg.NodePressureDiskPath,
+			MinMemoryPercent: cfg.NodeMinMemoryPercent, MinDiskPercent: cfg.NodeMinDiskPercent,
+			MinInodePercent: cfg.NodeMinInodePercent, MaxIOPSI: cfg.NodeMaxIOPSI, MaxCPUPSI: cfg.NodeMaxCPUPSI,
+		})
+		pressure = guard.Check
+	}
+	nodeAdmission := admission.New(cfg.NodeHeavyConcurrency, cfg.NodeCleanupConcurrency, pressure)
+	logger.Info("Node operation admission enabled", "heavy", cfg.NodeHeavyConcurrency, "cleanup", cfg.NodeCleanupConcurrency, "pressure", cfg.NodePressureEnabled)
 	dockerClient, err := docker.NewDockerClient(ctx, docker.DockerClientConfig{
 		ApiClient:                    cli,
+		Admission:                    nodeAdmission,
 		BackupInfoCache:              backupInfoCache,
 		Logger:                       logger,
 		AWSRegion:                    cfg.AWSRegion,
@@ -277,6 +290,7 @@ func run() int {
 		pollerService, err := poller.NewService(&poller.PollerServiceConfig{
 			PollTimeout: cfg.PollTimeout,
 			PollLimit:   cfg.PollLimit,
+			Admission:   nodeAdmission,
 			Logger:      logger,
 			Executor:    executorService,
 		})

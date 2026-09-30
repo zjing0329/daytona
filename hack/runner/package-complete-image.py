@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import uuid
 import build_receipt
 
 ASSETS = (
@@ -66,6 +67,12 @@ def verify_source(source, workspace, revision):
     return len(source_inputs)
 
 
+def runtime_matches_base(base, image):
+    layers = base.get("RootFS", {}).get("Layers", [])
+    return bool(layers) and image.get("RootFS", {}).get("Layers", [])[:len(layers)] == layers and all(
+        image["Config"].get(key) == base["Config"].get(key) for key in CONFIG_KEYS)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--source-root", type=pathlib.Path, required=True)
@@ -86,19 +93,27 @@ def main():
     base = json.loads(run("docker", "image", "inspect", a.base_image))[0]
     if base["Id"] != a.expected_base_image_id or not re.fullmatch(r"sha256:[0-9a-f]{64}", a.expected_base_image_id):
         raise ValueError("Runtime base image mismatch")
-    # Build from the immutable image ID verified above, not a mutable tag.
-    with tempfile.TemporaryDirectory(prefix="complete-runner-") as directory:
-        context = pathlib.Path(directory)
-        shutil.copy2(a.workspace / ASSETS[0], context / "daytona-runner")
-        shutil.copy2(a.source_root / "docker/api-dsec-v0187/Dockerfile.runner", context / "Dockerfile")
-        subprocess.run(["docker", "build", "--network=none", "--pull=false", "-t", a.tag,
-            "--build-arg", "BASE_IMAGE=" + base["Id"],
-            "--build-arg", "BASE_IMAGE_ID=" + base["Id"],
-            "--build-arg", "SOURCE_REVISION=" + a.source_revision,
-            "--build-arg", "RUNNER_BINARY_SHA256=" + assets[ASSETS[0]], str(context)], check=True)
+    # BuildKit treats bare sha256 image IDs as registry names. Give the verified
+    # local ID a unique temporary reference, then verify both identity and layers.
+    reference = "deepdiver/runner-build-base:" + uuid.uuid4().hex
+    run("docker", "image", "tag", base["Id"], reference)
+    try:
+        with tempfile.TemporaryDirectory(prefix="complete-runner-") as directory:
+            context = pathlib.Path(directory)
+            shutil.copy2(a.workspace / ASSETS[0], context / "daytona-runner")
+            shutil.copy2(a.source_root / "docker/api-dsec-v0187/Dockerfile.runner", context / "Dockerfile")
+            subprocess.run(["docker", "build", "--network=none", "--pull=false", "-t", a.tag,
+                "--build-arg", "BASE_IMAGE=" + reference,
+                "--build-arg", "BASE_IMAGE_ID=" + base["Id"],
+                "--build-arg", "SOURCE_REVISION=" + a.source_revision,
+                "--build-arg", "RUNNER_BINARY_SHA256=" + assets[ASSETS[0]], str(context)], check=True)
+        if json.loads(run("docker", "image", "inspect", reference))[0]["Id"] != base["Id"]:
+            raise ValueError("Temporary runtime base reference changed")
+    finally:
+        subprocess.run(["docker", "image", "rm", reference], check=False, stdout=subprocess.DEVNULL)
     image = json.loads(run("docker", "image", "inspect", a.tag))[0]
-    if any(image["Config"].get(key) != base["Config"].get(key) for key in CONFIG_KEYS):
-        raise ValueError("Runtime configuration changed")
+    if not runtime_matches_base(base, image):
+        raise ValueError("Runtime base layers or configuration changed")
     labels = image["Config"].get("Labels", {})
     if labels.get("org.opencontainers.image.revision") != a.source_revision or labels.get("io.deepdiver.runner.binary-sha256") != assets[ASSETS[0]] or labels.get("io.deepdiver.base.image-id") != base["Id"]:
         raise ValueError("Image provenance mismatch")

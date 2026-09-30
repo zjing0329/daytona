@@ -41,6 +41,18 @@ class PackagingTests(unittest.TestCase):
         (self.root / "dist/build-receipt.json").write_text(json.dumps(value))
         return value
 
+    def test_runtime_base_layers_must_match(self):
+        base = {"RootFS": {"Layers": ["original"]}, "Config": {"Cmd": ["runner"]}}
+        candidate = {"RootFS": {"Layers": ["original", "new-binary"]}, "Config": {"Cmd": ["runner"]}}
+        self.assertTrue(m.runtime_matches_base(base, candidate))
+        candidate["RootFS"]["Layers"][0] = "other-base"
+        self.assertFalse(m.runtime_matches_base(base, candidate))
+
+    def test_runtime_config_must_match(self):
+        base = {"RootFS": {"Layers": ["original"]}, "Config": {"Cmd": ["runner"]}}
+        candidate = {"RootFS": {"Layers": ["original", "new-binary"]}, "Config": {"Cmd": ["other"]}}
+        self.assertFalse(m.runtime_matches_base(base, candidate))
+
     def test_complete_assets(self):
         self.assertEqual(set(m.verify_assets(self.root)), set(m.ASSETS))
 
